@@ -1,0 +1,19 @@
+# Deep Learning & RL
+torch==2.10.0
+stable-baselines3==2.7.1
+gymnasium>=0.29.1
+
+# ML & Data
+scikit-learn==1.6.1
+numpy>=2.0,<3.0
+pandas>=2.2
+
+# SDN Controller
+os-ken==3.1.1
+
+# Dashboard
+streamlit==1.54.0
+
+# Utilities
+matplotlib>=3.9
+pyyaml>=6.0
