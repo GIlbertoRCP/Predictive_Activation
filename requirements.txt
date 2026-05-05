@@ -1,6 +1,6 @@
 # Deep Learning & RL
 torch==2.10.0
-stable-baselines3==2.7.1
+stable-baselines3[extra]>=2.0.0
 gymnasium>=0.29.1
 
 # ML & Data
@@ -8,12 +8,12 @@ scikit-learn==1.6.1
 numpy>=2.0,<3.0
 pandas>=2.2
 
-# SDN Controller
+# SDN Controller (WSL/Linux Only)
 os-ken==3.1.1
+eventlet==0.35.2
 
-# Dashboard
-streamlit==1.54.0
-
-# Utilities
+# Dashboard & UI
+streamlit>=1.30.0
+altair>=5.0.0
 matplotlib>=3.9
 pyyaml>=6.0
