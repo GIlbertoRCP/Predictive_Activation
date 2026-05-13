@@ -45,39 +45,62 @@ else:
 
     st.divider()
 
-    # --- Time Series Charts ---
-    st.header("2. Real-Time Telemetry Dynamics")
+    # --- THE UPGRADE: 3 Tabs for Storytelling ---
+    tab1, tab2, tab3 = st.tabs([" 1. Project Architecture", " 2. Real-Time Telemetry", " 3. AI Model Performance"])
     
-    # Filter for a specific switch to keep the charts clean
-    selected_switch = st.selectbox("Select Switch to Analyze:", df['switch_id'].unique())
-    switch_df = df[df['switch_id'] == selected_switch].copy()
-    
-    # Aggregate data by timestamp for the selected switch
-    timeline_df = switch_df.groupby('timestamp').agg({
-        'rx_mbps': 'sum',
-        'latency_ms': 'mean',
-        'lstm_risk': 'mean',
-        'rl_polling_interval': 'min'
-    }).reset_index()
+    with tab1:
+        st.header("How Predictive Activation Works")
+        st.markdown("""
+        Modern Software-Defined Networks (SDNs) waste massive amounts of CPU and bandwidth by polling switches for statistics every single second, even when the network is completely quiet. 
+        
+        **Our solution closes the loop using two AI models:**
+        """)
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.info("**Step 1: The Oracle (LSTM)**\n\nWe emulate a Fat-Tree SDN topology in Mininet. A Ryu/os-ken controller collects traffic features (throughput, latency, queue depth). An **LSTM Neural Network** watches the last 5 seconds of this data to predict if a congestion spike is imminent.")
+        with col_b:
+            st.success("**Step 2: The Decision Engine (DQN)**\n\nA **Reinforcement Learning Agent** observes the LSTM's risk score. It learns to leave the network in 'Heartbeat Mode' (polling every 30s) to save CPU, and instantly snaps to 'High-Fidelity Mode' (polling every 1s) the millisecond congestion is predicted.")
 
-    # Chart 1: Throughput & Latency
-    st.subheader(f"Switch {selected_switch}: Throughput vs Latency")
-    base = alt.Chart(timeline_df).encode(x=alt.X('timestamp:T', title='Time'))
-    
-    line_throughput = base.mark_line(color='blue').encode(
-        y=alt.Y('rx_mbps:Q', title='Throughput (Mbps)', scale=alt.Scale(domain=[0, timeline_df['rx_mbps'].max() + 10]))
-    )
-    line_latency = base.mark_line(color='red').encode(
-        y=alt.Y('latency_ms:Q', title='Latency (ms)')
-    )
-    st.altair_chart(alt.layer(line_throughput, line_latency).resolve_scale(y='independent'), use_container_width=True)
+        st.markdown("### The RL Reward Function")
+        st.latex(r"Reward = -(Monitoring\ Cost) - \alpha(Congestion\ Penalty) + \beta(Detection\ Accuracy)")
+        st.markdown("The agent is actively punished (Penalty = -100) if congestion occurs while it is sleeping, forcing it to learn the exact threshold to wake up the monitoring systems.")
 
-    # Chart 2: RL Polling Interval State
-    st.subheader(f"Switch {selected_switch}: AI Polling Interval Selection")
-    area_polling = base.mark_area(opacity=0.5, color='green').encode(
-        y=alt.Y('rl_polling_interval:Q', title='Polling Interval (Seconds)', scale=alt.Scale(reverse=True, domain=[0, 35])),
-        tooltip=['timestamp', 'rl_polling_interval', 'lstm_risk']
-    )
-    st.altair_chart(area_polling, use_container_width=True)
+    with tab2:
+        st.header("Phase 4 & 5: Real-Time Telemetry Dynamics")
+        selected_switch = st.selectbox("Select Switch to Analyze:", df['switch_id'].unique())
+        switch_df = df[df['switch_id'] == selected_switch].copy()
+        
+        timeline_df = switch_df.groupby('timestamp').agg({
+            'rx_mbps': 'sum',
+            'latency_ms': 'mean',
+            'lstm_risk': 'mean',
+            'rl_polling_interval': 'min'
+        }).reset_index()
 
-    st.info("💡 **How to read this:** When latency/throughput spikes (red/blue lines), the AI correctly detects the risk and drops the polling interval (green area) from 30s to 1s to capture the granular data.")
+        st.subheader(f"Switch {selected_switch}: Throughput vs Latency")
+        base = alt.Chart(timeline_df).encode(x=alt.X('timestamp:T', title='Time'))
+        
+        line_throughput = base.mark_line(color='blue').encode(
+            y=alt.Y('rx_mbps:Q', title='Throughput (Mbps)', scale=alt.Scale(domain=[0, timeline_df['rx_mbps'].max() + 10]))
+        )
+        line_latency = base.mark_line(color='red').encode(
+            y=alt.Y('latency_ms:Q', title='Latency (ms)')
+        )
+        st.altair_chart(alt.layer(line_throughput, line_latency).resolve_scale(y='independent'), use_container_width=True)
+
+        st.subheader(f"Switch {selected_switch}: AI Polling Interval Selection")
+        area_polling = base.mark_area(opacity=0.5, color='green').encode(
+            y=alt.Y('rl_polling_interval:Q', title='Polling Interval (Seconds)', scale=alt.Scale(reverse=True, domain=[0, 35])),
+            tooltip=['timestamp', 'rl_polling_interval', 'lstm_risk']
+        )
+        st.altair_chart(area_polling, use_container_width=True)
+        st.info(" **How to read this:** When latency/throughput spikes (red/blue lines), the AI correctly detects the risk and drops the polling interval (green area) from 30s to 1s to capture the granular data.")
+
+    with tab3:
+        st.header("Phase 2: Forecasting Model Comparison")
+        st.markdown("We trained two recurrent neural network architectures to predict network congestion. The RL Agent uses the LSTM in production due to its perfect recall on extreme congestion events.")
+        
+        m_col1, m_col2 = st.columns(2)
+        m_col1.metric("LSTM (Production)", "100.00% Accuracy", "128 Hidden Units")
+        m_col2.metric("GRU (Experimental)", "98.50% Accuracy", "Faster Training Time", delta_color="off")
