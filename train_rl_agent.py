@@ -1,14 +1,24 @@
-import gymnasium as gym
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import DQN
 from stable_baselines3.common.evaluation import evaluate_policy
 from sklearn.preprocessing import MinMaxScaler
 
-# 1. Re-initialize the LSTM to generate predictions for our RL agent
+# Constants kept consistent with train_lstm.py / dashboard.py
+SEQUENCE_LENGTH = 6  # 5 history rows + 1 current
+LATENCY_THRESHOLD_MS = 100.0
+FEATURES = ['rx_mbps', 'tx_mbps', 'rx_loss', 'tx_loss', 'avg_queue_depth', 'latency_ms']
+SEED = 42
+
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+
+
+# --- LSTM architecture (matches train_lstm.py exactly so the checkpoint loads) ---
 class CongestionPredictor(nn.Module):
     def __init__(self, input_size=6, hidden_size=128, num_layers=2):
         super(CongestionPredictor, self).__init__()
@@ -18,121 +28,157 @@ class CongestionPredictor(nn.Module):
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :])
-        return self.sigmoid(out)
+        return self.sigmoid(self.fc(out[:, -1, :]))
 
-# 2. Build the Custom SDN Telemetry Environment
+
 class SDNTelemetryEnv(gym.Env):
+    """
+    Polling-rate selection environment.
+
+    BUG FIXES vs previous version
+    -----------------------------
+    1. Congestion ground truth now matches train_lstm.py: `latency_ms > 100 ms`
+       on the next step. Previously the env used `scaled_latency_ms > 0.5`
+       (≈ raw latency > 1855 ms), which disagreed with what the LSTM was
+       trained to predict.
+
+    2. Sliding windows no longer cross (switch, port) boundaries. Previously
+       `self.df.iloc[step-5:step]` would mix rows from different switches/ports
+       at group boundaries because the dataframe is sorted by
+       (switch_id, port_no, timestamp). Each episode now walks a single
+       (switch, port) trace; on reset, we sample a different trace.
+    """
+
+    metadata = {"render_modes": []}
+
     def __init__(self, csv_path, model_path, alpha=1.0, beta=1.0):
-        super(SDNTelemetryEnv, self).__init__()
-        
-        print("Loading dataset and pre-computing LSTM predictions for the RL environment...")
-        self.df = pd.read_csv(csv_path).sort_values(by=['switch_id', 'port_no', 'timestamp'])
-        
+        super().__init__()
+        print("Loading dataset and preparing per-(switch, port) traces...")
+        df = pd.read_csv(csv_path)
+        df = df.sort_values(by=['switch_id', 'port_no', 'timestamp']).reset_index(drop=True)
+
+        # Ground-truth congestion in RAW ms, BEFORE scaling
+        df['is_congested'] = (df['latency_ms'] > LATENCY_THRESHOLD_MS).astype(int)
+
+        # Scale features for LSTM input (matches training)
+        self.scaler = MinMaxScaler()
+        df[FEATURES] = self.scaler.fit_transform(df[FEATURES])
+
+        # Build per-(switch, port) traces; reject any trace too short to play.
+        self.traces = []
+        for _, group in df.groupby(['switch_id', 'port_no']):
+            group = group.reset_index(drop=True)
+            if len(group) > SEQUENCE_LENGTH + 30:  # need room to step forward
+                self.traces.append({
+                    'features': group[FEATURES].values.astype(np.float32),
+                    'is_congested': group['is_congested'].values.astype(np.int64),
+                })
+        if not self.traces:
+            raise RuntimeError("No (switch, port) trace is long enough for training.")
+        print(f"  Loaded {len(self.traces)} traces (each >= {SEQUENCE_LENGTH + 30} steps)")
+
         # Action Space: 0 = 30s (Low), 1 = 10s (Medium), 2 = 1s (High)
         self.action_space = spaces.Discrete(3)
         self.intervals = {0: 30, 1: 10, 2: 1}
-        self.costs = {0: 1, 1: 3, 2: 30} # Cost penalty for each mode
-        
+        self.costs = {0: 1, 1: 3, 2: 30}
+
         # Observation Space: [LSTM_Prob, Utilization, Current_Interval_Idx]
-        self.observation_space = spaces.Box(low=0, high=1, shape=(3,), dtype=np.float32)
-        
+        self.observation_space = spaces.Box(
+            low=np.array([0.0, 0.0, 0.0], dtype=np.float32),
+            high=np.array([1.0, 1.0, 2.0], dtype=np.float32),
+            dtype=np.float32,
+        )
+
         self.alpha = alpha
         self.beta = beta
-        
-        # Load the LSTM Model to act as our oracle
+
+        # Load LSTM oracle (matches train_lstm.py architecture)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.lstm_model = CongestionPredictor().to(self.device)
-        self.lstm_model.load_state_dict(torch.load(model_path, map_location=self.device, weights_only=True))
+        self.lstm_model.load_state_dict(
+            torch.load(model_path, map_location=self.device, weights_only=True)
+        )
         self.lstm_model.eval()
 
-        self._preprocess_data()
-        self.current_step = 5 # Start after the first 5-second window
-        self.max_steps = len(self.df) - 1
-        self.current_interval_idx = 0 # Default to 30s
+        # Episode state
+        self.current_trace = None
+        self.current_step = 0
+        self.current_interval_idx = 0
+        self.rng = np.random.default_rng(SEED)
 
-    def _preprocess_data(self):
-        features = ['rx_mbps', 'tx_mbps', 'rx_loss', 'tx_loss', 'avg_queue_depth', 'latency_ms']
-        scaler = MinMaxScaler()
-        self.df[features] = scaler.fit_transform(self.df[features])
-        # Define ground truth congestion (utilization > 80% or latency spike)
-        self.df['is_congested'] = (self.df['latency_ms'] > 0.5).astype(int) 
-
-    def _get_lstm_prediction(self, step):
-        # Grab the last 5 seconds of data to feed the LSTM
-        window = self.df.iloc[step-5:step][['rx_mbps', 'tx_mbps', 'rx_loss', 'tx_loss', 'avg_queue_depth', 'latency_ms']].values
+    def _get_lstm_prediction(self, features, step):
+        """SEQUENCE_LENGTH-1 history rows ending at `step`. Within-trace only."""
+        window = features[step - (SEQUENCE_LENGTH - 1):step + 1]
         x_tensor = torch.tensor(window, dtype=torch.float32).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            prob = self.lstm_model(x_tensor).item()
-        return prob
+            return self.lstm_model(x_tensor).item()
 
-    def reset(self, seed=None):
+    def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.current_step = 5
+        # Sample a trace to play this episode
+        self.current_trace = self.traces[self.rng.integers(0, len(self.traces))]
+        self.current_step = SEQUENCE_LENGTH - 1  # earliest index with full history
         self.current_interval_idx = 0
-        
-        lstm_prob = self._get_lstm_prediction(self.current_step)
-        utilization = self.df.iloc[self.current_step]['rx_mbps']
-        
-        return np.array([lstm_prob, utilization, self.current_interval_idx], dtype=np.float32), {}
+
+        lstm_prob = self._get_lstm_prediction(
+            self.current_trace['features'], self.current_step
+        )
+        utilization = float(self.current_trace['features'][self.current_step, 0])  # rx_mbps
+        return np.array([lstm_prob, utilization, 0.0], dtype=np.float32), {}
 
     def step(self, action):
-        # 1. Execute Action & Calculate Cost
-        polling_rate = self.intervals[action]
-        cost = self.costs[action]
-        
-        # 2. Advance time based on the polling rate chosen
+        features = self.current_trace['features']
+        is_congested = self.current_trace['is_congested']
+
+        polling_rate = self.intervals[int(action)]
+        cost = self.costs[int(action)]
+
         next_step = self.current_step + polling_rate
-        
-        # Check if we hit the end of the dataset
-        terminated = next_step >= self.max_steps
+        terminated = next_step >= len(features) - 1
         if terminated:
-            next_step = self.max_steps - 1
+            next_step = len(features) - 1
 
-        # 3. Check what actually happened in the network during that blind spot
-        # Did congestion occur while we were sleeping?
-        window_truth = self.df.iloc[self.current_step:next_step]['is_congested'].max()
-        
-        # 4. Calculate the Reward
-        penalty = 0
-        accuracy_reward = 0
-        
-        # If congestion happened but we weren't in 1s High-Fidelity mode -> Massive Penalty!
-        if window_truth == 1 and action != 2:
-            penalty = 100
-            
-        # If we went into High-Fidelity mode and successfully caught the congestion -> Reward!
-        if action == 2 and window_truth == 1:
-            accuracy_reward = 50
-            
-        # The Custom Reward Function from the Proposal
+        # Did congestion occur in the blind spot we just skipped over?
+        window_truth = int(is_congested[self.current_step:next_step].max())
+
+        penalty = 100 if (window_truth == 1 and int(action) != 2) else 0
+        accuracy_reward = 50 if (int(action) == 2 and window_truth == 1) else 0
         reward = -(cost) - (self.alpha * penalty) + (self.beta * accuracy_reward)
-        
-        # 5. Get the Next State
-        self.current_step = next_step
-        self.current_interval_idx = action
-        
-        lstm_prob = self._get_lstm_prediction(self.current_step)
-        utilization = self.df.iloc[self.current_step]['rx_mbps']
-        next_state = np.array([lstm_prob, utilization, self.current_interval_idx], dtype=np.float32)
-        
-        return next_state, reward, terminated, False, {}
 
-# 3. Train the DQN Agent
+        # Advance state
+        self.current_step = next_step
+        self.current_interval_idx = int(action)
+
+        lstm_prob = self._get_lstm_prediction(features, self.current_step)
+        utilization = float(features[self.current_step, 0])
+        next_state = np.array(
+            [lstm_prob, utilization, float(self.current_interval_idx)],
+            dtype=np.float32,
+        )
+        return next_state, float(reward), bool(terminated), False, {}
+
+
 if __name__ == "__main__":
     print("Initializing SDN Telemetry Environment...")
-    env = SDNTelemetryEnv(csv_path='telemetry_dataset.csv', model_path='lstm_forecaster.pth')
-    
+    env = SDNTelemetryEnv(
+        csv_path='telemetry_dataset.csv',
+        model_path='lstm_forecaster.pth',
+    )
+
     print("Building Deep Q-Network (DQN) Agent...")
-    model = DQN("MlpPolicy", env, verbose=1, exploration_fraction=0.2, learning_starts=1000)
-    
+    model = DQN(
+        "MlpPolicy", env, verbose=1,
+        exploration_fraction=0.2,
+        learning_starts=1000,
+        seed=SEED,
+    )
+
     print("Training Agent for 20,000 timesteps...")
-    model.learn(total_timesteps=20000, progress_bar=True)
-    
-    print("Evaluating Trained Policy...")
+    model.learn(total_timesteps=20000, progress_bar=False)
+
+    print("\nEvaluating Trained Policy...")
     mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
     print(f"Mean Reward per Episode: {mean_reward:.2f} +/- {std_reward:.2f}")
-    
-    # Save the RL Brain
+
     model.save("dqn_telemetry_agent")
-    print("\n RL Agent saved successfully to 'dqn_telemetry_agent.zip'")
+    print("\nRL Agent saved to 'dqn_telemetry_agent.zip'")
