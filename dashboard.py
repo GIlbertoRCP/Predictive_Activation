@@ -10,6 +10,9 @@ import torch.nn as nn
 import altair as alt
 import graphviz
 
+# --- API Config ---
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+
 # --- Page Config ---
 st.set_page_config(page_title="Predictive Activation SDN Dashboard", layout="wide")
 st.title("Predictive Activation: Decoupled SDN Telemetry & MLOps Platform")
@@ -256,7 +259,7 @@ else: # --- Live Streaming & Self-Healing Mode ---
     st.sidebar.subheader("Simulation Controls")
     if st.sidebar.button("🔥 Inject Congestion Spike", help="Injects a 15-second heavy network bottleneck into the telemetry stream"):
         try:
-            res_spike = requests.post("http://localhost:8000/trigger-spike", timeout=1.0)
+            res_spike = requests.post(f"{BACKEND_URL}/trigger-spike", timeout=1.0)
             if res_spike.status_code == 200:
                 st.sidebar.success("Bottleneck injected!")
             else:
@@ -266,13 +269,13 @@ else: # --- Live Streaming & Self-Healing Mode ---
             
     # Check connection to backend
     try:
-        res = requests.get("http://localhost:8000/latest", timeout=1.5)
+        res = requests.get(f"{BACKEND_URL}/latest", timeout=1.5)
         if res.status_code != 200:
             st.error("FastAPI Inference Service returned an error code.")
             st.stop()
         backend_data = res.json()
     except Exception:
-        st.warning("⚠️ Could not connect to FastAPI Inference Service at http://localhost:8000.")
+        st.warning(f"⚠️ Could not connect to FastAPI Inference Service at {BACKEND_URL}.")
         st.info("To start the pipeline and view live streaming telemetry, please run the following in your terminal:")
         st.code("""# 1. Start Kafka Broker
 docker compose up -d
@@ -495,7 +498,7 @@ python3 replay_simulator.py --speed 2.0""")
         # Trigger REST call to swap engine in FastAPI
         if selected_engine != active_engine:
             try:
-                res_swap = requests.post(f"http://localhost:8000/set-engine?engine={selected_engine}", timeout=1.0)
+                res_swap = requests.post(f"{BACKEND_URL}/set-engine?engine={selected_engine}", timeout=1.0)
                 if res_swap.status_code == 200:
                     st.success(f"Successfully swapped model engine to: {engine_options[selected_engine]}")
                     time.sleep(0.5)

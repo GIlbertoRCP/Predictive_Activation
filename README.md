@@ -144,7 +144,7 @@ This performs a full size and latency benchmark run, exporting a performance rep
 
 ### 3. Interactive MLOps Dashboard Controls
 * **Live Engine Swapping**: Under the **MLOps & Edge Optimization (ONNX / INT8)** tab, choose between PyTorch, ONNX, and ONNX Quantized execution backends. Swapping triggers an instant REST call (`/set-engine`) to update the live FastAPI inference thread.
-* **Congestion Spike Injection**: Click the **"🔥 Inject Congestion Spike"** button in the sidebar to simulate high-load scenarios. FastAPI sends a command to the `network-simulation` topic, prompting the telemetry simulator to inject 15 readings of latency > 150ms and high queue depths, demonstrating real-time path self-healing.
+* **Congestion Spike Injection**: Click the **" Inject Congestion Spike"** button in the sidebar to simulate high-load scenarios. FastAPI sends a command to the `network-simulation` topic, prompting the telemetry simulator to inject 15 readings of latency > 150ms and high queue depths, demonstrating real-time path self-healing.
 
 ---
 
