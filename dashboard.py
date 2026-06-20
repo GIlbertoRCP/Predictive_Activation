@@ -253,11 +253,11 @@ if dashboard_mode == "Historical Batch Analytics":
 
 else: # --- Live Streaming & Self-Healing Mode ---
     st.sidebar.markdown("---")
-    st.sidebar.success("📡 Connected to live Kafka streams.")
+    st.sidebar.success("Connected to live Kafka streams.")
     
     # 1. Sidebar Interactive Spike Injector
     st.sidebar.subheader("Simulation Controls")
-    if st.sidebar.button("🔥 Inject Congestion Spike", help="Injects a 15-second heavy network bottleneck into the telemetry stream"):
+    if st.sidebar.button("Inject Congestion Spike", help="Injects a 15-second heavy network bottleneck into the telemetry stream"):
         try:
             res_spike = requests.post(f"{BACKEND_URL}/trigger-spike", timeout=1.0)
             if res_spike.status_code == 200:
@@ -275,7 +275,7 @@ else: # --- Live Streaming & Self-Healing Mode ---
             st.stop()
         backend_data = res.json()
     except Exception:
-        st.warning(f"⚠️ Could not connect to FastAPI Inference Service at {BACKEND_URL}.")
+        st.warning(f"Could not connect to FastAPI Inference Service at {BACKEND_URL}.")
         st.info("To start the pipeline and view live streaming telemetry, please run the following in your terminal:")
         st.code("""# 1. Start Kafka Broker
 docker compose up -d
@@ -295,7 +295,7 @@ python3 replay_simulator.py --speed 2.0""")
     last_latency_ms = backend_data.get("last_latency_ms", 0.0)
 
     if not telemetry:
-        st.info("📡 Connected to Inference Service, but no telemetry has arrived yet. Starting replay_simulator.py should trigger the live feed.")
+        st.info("Connected to Inference Service, but no telemetry has arrived yet. Starting replay_simulator.py should trigger the live feed.")
         if st.button("Refresh Stream"):
             st.rerun()
         st.stop()
@@ -343,8 +343,8 @@ python3 replay_simulator.py --speed 2.0""")
 
     # Define Tabs
     tab_live, tab_mlops = st.tabs([
-        "📊 Live Telemetry & Path Rerouting",
-        "⚙️ MLOps & Edge Optimization (ONNX / INT8)"
+        "Live Telemetry & Path Rerouting",
+        "MLOps & Edge Optimization (ONNX / INT8)"
     ])
 
     with tab_live:
@@ -555,7 +555,7 @@ python3 replay_simulator.py --speed 2.0""")
             st.table(bench_df)
             
             st.info(
-                "💡 **Key Insight:** Notice how dynamic INT8 quantization reduces the PyTorch model size by **~73%** "
+                "**Key Insight:** Notice how dynamic INT8 quantization reduces the PyTorch model size by **~73%** "
                 "(from ~791 KB to ~214 KB) and reduces average execution latency by **~70%** (from ~0.17ms to ~0.05ms) "
                 "with zero loss in prediction accuracy!"
             )
