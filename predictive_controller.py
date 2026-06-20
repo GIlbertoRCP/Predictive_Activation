@@ -2,28 +2,13 @@ import eventlet
 eventlet.monkey_patch()
 
 import time
-import numpy as np
-import torch
-import torch.nn as nn
+import json
 from os_ken.base import app_manager
 from os_ken.controller import ofp_event
 from os_ken.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls
 from os_ken.ofproto import ofproto_v1_3
 from os_ken.lib import hub
-from stable_baselines3 import DQN
-
-# --- 1. Load LSTM Architecture ---
-class CongestionPredictor(nn.Module):
-    def __init__(self, input_size=6, hidden_size=128, num_layers=2):
-        super(CongestionPredictor, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 1)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :])
-        return self.sigmoid(out)
+from kafka import KafkaProducer, KafkaConsumer
 
 class PredictiveActivationApp(app_manager.OSKenApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -34,43 +19,57 @@ class PredictiveActivationApp(app_manager.OSKenApp):
         self.prev_stats = {}
         self.queue_depths = {}
         self.latencies = {}
-        
-        # --- 2. Initialize AI Models ---
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        self.lstm = CongestionPredictor().to(self.device)
-        self.lstm.load_state_dict(torch.load('lstm_forecaster.pth', map_location=self.device, weights_only=True))
-        self.lstm.eval()
-        
-        self.rl_agent = DQN.load("dqn_telemetry_agent")
-        self.logger.info("✅ Closed-Loop System Online: LSTM & DQN Models Loaded.")
-
-        # --- 3. Dynamic Tracking Variables ---
         self.polling_intervals = {} # dpid -> interval in seconds
-        self.action_mapping = {0: 30, 1: 10, 2: 1} # 0=Low, 1=Medium, 2=High
-        self.current_action_idx = {} 
-        self.history_buffer = {} # dpid_port -> list of the last 5 feature sets
         
+        # Initialize Kafka Producer
+        self.logger.info("Connecting Producer to Kafka...")
+        self.producer = None
+        for i in range(15):
+            try:
+                self.producer = KafkaProducer(
+                    bootstrap_servers=['localhost:9092'],
+                    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+                )
+                self.logger.info("Kafka Producer connected successfully.")
+                break
+            except Exception as e:
+                self.logger.warn(f"Waiting for Kafka Producer ({i+1}/15): {e}")
+                hub.sleep(3)
+
+        if not self.producer:
+            self.logger.error("Failed to connect to Kafka. Exiting App.")
+            return
+
+        # Spawn threads
         self.monitor_thread = hub.spawn(self._monitor)
+        self.control_consumer_thread = hub.spawn(self._consume_control_messages)
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, CONFIG_DISPATCHER])
     def _state_change_handler(self, ev):
         datapath = ev.datapath
         if ev.state == MAIN_DISPATCHER:
             if datapath.id not in self.datapaths:
+                self.logger.info(f"Registered switch: {datapath.id}")
                 self.datapaths[datapath.id] = datapath
                 self.polling_intervals[datapath.id] = 30 # Default to heartbeat mode
-                self.current_action_idx[datapath.id] = 0
+                
+                # Apply default routing path on Aggregation switches (s3, s4)
+                if datapath.id in [3, 4]:
+                    self._apply_routing_decision(datapath, "s1")
+                    
         elif ev.state == CONFIG_DISPATCHER:
             if datapath.id in self.datapaths:
+                self.logger.info(f"Unregistered switch: {datapath.id}")
                 del self.datapaths[datapath.id]
+                if datapath.id in self.polling_intervals:
+                    del self.polling_intervals[datapath.id]
 
     def _monitor(self):
         tick = 0
         while True:
-            for dp in self.datapaths.values():
+            for dp in list(self.datapaths.values()):
                 interval = self.polling_intervals.get(dp.id, 30)
-                # Only request stats if the tick matches the RL agent's assigned interval
+                # Only request stats if the tick matches the switch's assigned interval
                 if tick % interval == 0:
                     self._request_port_stats(dp)
                     self._request_queue_stats(dp)
@@ -137,33 +136,99 @@ class PredictiveActivationApp(app_manager.OSKenApp):
                     'rx_packets': stat.rx_packets, 'rx_dropped': stat.rx_dropped,
                 }
 
-                # --- 4. The Brain: RL Telemetry Escalation ---
-                # Rough normalization to keep inputs balanced for the Neural Network
-                feature_vector = [rx_mbps/100.0, tx_mbps/100.0, rx_loss_rate, tx_loss_rate, queue_depth/10000.0, latency/100.0]
+                # Publish Telemetry Message to Kafka
+                payload = {
+                    'timestamp': current_time,
+                    'switch_id': dpid,
+                    'port_no': stat.port_no,
+                    'rx_mbps': round(rx_mbps, 4),
+                    'tx_mbps': round(tx_mbps, 4),
+                    'rx_loss': round(rx_loss_rate, 6),
+                    'tx_loss': round(tx_loss_rate, 6),
+                    'avg_queue_depth': queue_depth,
+                    'latency_ms': round(latency, 4)
+                }
                 
-                if port_key not in self.history_buffer:
-                    self.history_buffer[port_key] = []
-                self.history_buffer[port_key].append(feature_vector)
+                if self.producer:
+                    self.producer.send('network-telemetry', value=payload)
+
+    def _consume_control_messages(self):
+        self.logger.info("Starting Kafka Control Consumer Thread...")
+        consumer = None
+        for i in range(15):
+            try:
+                consumer = KafkaConsumer(
+                    'network-control',
+                    bootstrap_servers=['localhost:9092'],
+                    value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+                )
+                self.logger.info("Kafka Control Consumer connected successfully.")
+                break
+            except Exception as e:
+                self.logger.warn(f"Waiting for Kafka Control Consumer ({i+1}/15): {e}")
+                hub.sleep(3)
+        
+        if not consumer:
+            self.logger.error("Failed to connect Control Consumer to Kafka.")
+            return
+
+        for message in consumer:
+            decision = message.value
+            try:
+                dpid = int(decision['switch_id'])
+                polling_interval = int(decision['polling_interval'])
+                routing_path = decision['routing_path']
                 
-                # Keep sliding window at 5 seconds
-                if len(self.history_buffer[port_key]) > 5:
-                    self.history_buffer[port_key].pop(0)
-                    
-                # If we have enough history, ask the AI what to do next
-                if len(self.history_buffer[port_key]) == 5:
-                    window_tensor = torch.tensor([self.history_buffer[port_key]], dtype=torch.float32).to(self.device)
-                    
-                    with torch.no_grad():
-                        lstm_prob = self.lstm(window_tensor).item()
-                        
-                    current_idx = self.current_action_idx.get(dpid, 0)
-                    rl_state = np.array([lstm_prob, rx_mbps/100.0, current_idx], dtype=np.float32)
-                    
-                    action, _ = self.rl_agent.predict(rl_state, deterministic=True)
-                    new_interval = self.action_mapping[int(action)]
-                    
-                    # Apply the newly predicted interval back to the controller
-                    self.polling_intervals[dpid] = new_interval
-                    self.current_action_idx[dpid] = int(action)
-                    
-                    self.logger.info(f"SW:{dpid} P:{stat.port_no} | Util:{rx_mbps:.2f}M | LSTM Risk:{lstm_prob:.0%} | Next Poll:{new_interval}s")
+                # Apply dynamic polling rate
+                self.polling_intervals[dpid] = polling_interval
+                self.logger.info(f"Kafka Decision for SW {dpid} | Poll: {polling_interval}s | Route Path: {routing_path}")
+                
+                # Apply dynamic routing rules if the switch is currently registered
+                if dpid in self.datapaths:
+                    self._apply_routing_decision(self.datapaths[dpid], routing_path)
+            except Exception as e:
+                self.logger.error(f"Error handling Kafka control message: {e}")
+            
+            hub.sleep(0.01) # Yield to eventlet greenlets
+
+    def _apply_routing_decision(self, datapath, path):
+        """
+        Dynamically updates flow rules on aggregation switches to reroute traffic.
+        Aggregation switch s3 (dpid 3) connects to Core 1 (s1) on Port 1 and Core 2 (s2) on Port 2.
+        Aggregation switch s4 (dpid 4) connects to Core 1 (s1) on Port 1 and Core 2 (s2) on Port 2.
+        """
+        if datapath.id not in [3, 4]:
+            return
+            
+        parser = datapath.ofproto_parser
+        ofproto = datapath.ofproto
+        out_port = 1 if path == "s1" else 2
+        
+        self.logger.info(f"Updating Switch {datapath.id} flow rules: Routing all cross-network flows to Port {out_port} ({path})")
+        
+        # Priority 10 rules override the standard MAC-learning rules (which run at priority 1)
+        if datapath.id == 3:
+            # Route packets destined to h9-h16 (IPs 10.0.0.9 to 10.0.0.16)
+            for host_id in range(9, 17):
+                ip_dst = f"10.0.0.{host_id}"
+                match = parser.OFPMatch(eth_type=0x0800, ipv4_dst=ip_dst)
+                actions = [parser.OFPActionOutput(out_port)]
+                self.add_flow(datapath, 10, match, actions)
+                
+        elif datapath.id == 4:
+            # Route packets destined to h1-h8 (IPs 10.0.0.1 to 10.0.0.8)
+            for host_id in range(1, 9):
+                ip_dst = f"10.0.0.{host_id}"
+                match = parser.OFPMatch(eth_type=0x0800, ipv4_dst=ip_dst)
+                actions = [parser.OFPActionOutput(out_port)]
+                self.add_flow(datapath, 10, match, actions)
+
+    def add_flow(self, datapath, priority, match, actions):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+        mod = parser.OFPFlowMod(
+            datapath=datapath, priority=priority,
+            match=match, instructions=inst
+        )
+        datapath.send_msg(mod)

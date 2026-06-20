@@ -3,11 +3,14 @@ eventlet.monkey_patch()
 
 import csv
 import time
+import json
 from os_ken.base import app_manager
 from os_ken.controller import ofp_event
 from os_ken.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls
 from os_ken.ofproto import ofproto_v1_3
 from os_ken.lib import hub
+from kafka import KafkaProducer
+
 
 class PredictiveTelemetryApp(app_manager.OSKenApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -31,6 +34,17 @@ class PredictiveTelemetryApp(app_manager.OSKenApp):
             'avg_queue_depth', 'latency_ms'
         ])
         
+        # Initialize Kafka Producer (Optional fallback if Kafka is not running)
+        self.producer = None
+        try:
+            self.producer = KafkaProducer(
+                bootstrap_servers=['localhost:9092'],
+                value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            )
+            self.logger.info("Kafka Producer connected successfully.")
+        except Exception as e:
+            self.logger.warn(f"Running without Kafka streaming (Producer failed to connect): {e}")
+            
         self.monitor_thread = hub.spawn(self._monitor)
 
     @set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, CONFIG_DISPATCHER])
@@ -145,6 +159,7 @@ class PredictiveTelemetryApp(app_manager.OSKenApp):
 
                 self.logger.info(f"SW:{dpid} P:{stat.port_no} | RX:{rx_mbps:.2f}M | Loss:{rx_loss_rate:.4f} | Q:{queue_depth}B | Lat:{latency:.2f}ms")                
                 
+                # Write to CSV
                 self.csv_writer.writerow([
                     current_time, dpid, stat.port_no, 
                     round(rx_mbps, 4), round(tx_mbps, 4), 
@@ -152,3 +167,21 @@ class PredictiveTelemetryApp(app_manager.OSKenApp):
                     queue_depth, round(latency, 4)
                 ])
                 self.csv_file.flush()
+                
+                # Stream to Kafka
+                if self.producer:
+                    payload = {
+                        'timestamp': current_time,
+                        'switch_id': dpid,
+                        'port_no': stat.port_no,
+                        'rx_mbps': round(rx_mbps, 4),
+                        'tx_mbps': round(tx_mbps, 4),
+                        'rx_loss': round(rx_loss_rate, 6),
+                        'tx_loss': round(tx_loss_rate, 6),
+                        'avg_queue_depth': queue_depth,
+                        'latency_ms': round(latency, 4)
+                    }
+                    try:
+                        self.producer.send('network-telemetry', value=payload)
+                    except Exception as e:
+                        self.logger.error(f"Failed to stream to Kafka: {e}")

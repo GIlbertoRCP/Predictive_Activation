@@ -1,0 +1,30 @@
+{
+  "lstm": {
+    "pytorch": {
+      "size_kb": 791.35,
+      "latency_ms": 0.175
+    },
+    "onnx": {
+      "size_kb": 795.63,
+      "latency_ms": 0.058
+    },
+    "onnx_quantized": {
+      "size_kb": 213.96,
+      "latency_ms": 0.054
+    }
+  },
+  "gru": {
+    "pytorch": {
+      "size_kb": 594.34,
+      "latency_ms": 0.157
+    },
+    "onnx": {
+      "size_kb": 595.75,
+      "latency_ms": 0.05
+    },
+    "onnx_quantized": {
+      "size_kb": 597.55,
+      "latency_ms": 0.051
+    }
+  }
+}

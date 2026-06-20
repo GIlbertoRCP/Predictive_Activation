@@ -1,101 +1,172 @@
-# Predictive Network Telemetry System
+# Predictive Network Telemetry & Self-Healing SDN System
 
-An SDN-based monitoring system that uses LSTM/GRU networks and Reinforcement Learning to move from reactive to **proactive** network telemetry. Instead of polling at a fixed rate, the system predicts congestion before it happens and only activates high-fidelity monitoring when it's needed.
+An event-driven, distributed SDN monitoring and traffic engineering system that uses LSTM networks and Reinforcement Learning to move from reactive to **proactive, self-healing** network management. 
 
-**Team:** Diego Alas, Gilberto Romero-Cano, Corey Green, JJ Wagner
-**Course:** CSCI 4930 HL1 @ CU Denver
+By decoupling network state monitoring, ML inference, and control plane execution using **Apache Kafka**, the system balances data collection overhead, predictive congestion detection, and automated network rerouting in real-time.
+
+**Team:** Diego Alas, Gilberto Romero-Cano, Corey Green, JJ Wagner  
+**Course:** CSCI 4930 HL1 @ CU Denver  
 
 ---
 
-## Project Goals
+## System Architecture
 
-The core idea is **Predictive Activation** — the system operates in two modes:
-
-- **Heartbeat mode** (every 30s): Default low-overhead polling. Used when the LSTM predicts less than 70% chance of congestion.
-- **Intensive mode** (every 1s): High-fidelity polling. Triggered when the LSTM predicts 70%+ congestion probability.
-
-A Reinforcement Learning agent learns *when* to switch between these modes, balancing three competing objectives via the reward function:
+The project implements a decoupled, event-driven streaming pipeline:
 
 ```
-Reward = -(Monitoring_Cost) - α(Congestion_Penalty) + β(Detection_Accuracy)
+┌────────────────────────────────────────┐
+│            SDN Control Plane           │
+│     (Mininet Emulation & os-ken)       │
+│                                        │
+│          s3 ──► s1 ──► s4 (Primary)    │
+│           └───► s2 ────┘  (Backup)     │
+└──────────────────┬─────────────────────┘
+                   │
+                   │ Publish Telemetry (JSON)
+                   ▼
+┌────────────────────────────────────────┐
+│            Apache Kafka                │
+│    Topic: [network-telemetry]          │
+└──────────────────┬─────────────────────┘
+                   │
+                   │ Consume Telemetry Stream
+                   ▼
+┌────────────────────────────────────────┐
+│        FastAPI Inference Service       │
+│    - Fits MinMaxScaler on CSV          │
+│    - Runs PyTorch LSTM Forecasts       │
+│    - Executes DQN RL Polling Decision  │
+│    - Reroutes Path (s1 vs s2)          │
+└──────────────────┬─────────────────────┘
+                   │
+                   │ Publish Control Commands (JSON)
+                   ▼
+┌────────────────────────────────────────┐
+│            Apache Kafka                │
+│     Topic: [network-control]           │
+└──────────────────┬───────────────┬─────┘
+                   │               │
+                   │ Consume       │ Consume
+                   ▼               ▼
+┌───────────────────────────┐ ┌───────────────────────────┐
+│     SDN Control Plane     │ │    Streamlit Dashboard    │
+│  - Adjust Polling Rate    │ │  - Real-time Graphviz Map │
+│  - Apply OpenFlow Rules   │ │  - Live Rolling Charts   │
+│    to reroute flows       │ │  - Self-Healing Event Logs│
+└───────────────────────────┘ └───────────────────────────┘
 ```
 
-The target is to match the detection accuracy of always-on intensive polling while reducing monitoring overhead by 60% or more.
+1. **Lightweight SDN Controller**: The os-ken controller polls OpenFlow switches for port/queue metrics, publishes raw telemetry to the `network-telemetry` topic, and subscribes to the `network-control` topic. It offloads all heavy ML calculations, keeping memory overhead under 30MB.
+2. **Inference Microservice**: A FastAPI application consumes telemetry messages, maintains port-specific sliding windows, runs LSTM models to predict congestion, runs the DQN agent to select polling intervals, and decides when to reroute traffic from Core 1 (`s1`) to Core 2 (`s2`).
+3. **Closed-Loop Self-Healing**: When the LSTM congestion forecast exceeds **70%**, the microservice commands the controller to:
+   - Snaps the polling rate to intensive mode (1s).
+   - Installs high-priority (priority 10) flow rules on aggregation switches to steer traffic flows to the backup path `s2` to prevent service degradation.
+4. **Interactive Dashboard**: A Streamlit UI displays live metrics, plots throughput/latency/risk charts, lists self-healing logs, and visualizes the network topology in real-time.
 
+---
 
-## Reproducibility & Execution Instructions
+## Execution Modes & Instructions
 
-To satisfy reproducibility requirements, we have provided a pre-generated network dataset (telemetry_dataset.csv). Any team member and user (Mac/Windows/Linux) can run the Machine Learning and Dashboard components.  
-
-
-### Option A: Bash Script pipeline 
-We built an automated Bash script that trains the LSTM, trains the Reinforcement Learning agent, and launches the interactive dashboard automatically.
+### 1. Setup Environment
+First, clone the repository, set up a Python virtual environment, and install the dependencies:
 
 ```bash
-# 1. Create and activate a virtual environment 
+# Create and activate virtual environment
 python3 -m venv .venv
-source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
+source .venv/bin/activate  # On Windows: source .venv/Scripts/activate
 
-# 2. Install dependencies
+# Install dependencies
 pip install -r requirements.txt
-
-# 3. Make the script executable and run the entire pipeline
-chmod +x run_pipeline.sh
-./run_pipeline.sh
 ```
 
-### Option B: Docker Container 
-If you do not want to configure a local Python environment, you can run the pre-configured Dashboard using Docker. Live code changes should instantly reflect in the app.
-
+Start the Apache Kafka message broker in the background using Docker:
 ```bash
-# Build the image
-docker build -t sdn-dashboard .
-
-# Run the container with live-reloading enabled
-docker run -p 8501:8501 -v "$(pwd):/app" sdn-dashboard
-
+docker compose up -d
 ```
-Navigate to http://localhost:8501 to view the multi-tab architecture breakdown and telemetry dynamics
 
 ---
-### Manual Execution 
-If you prefer to run the pipeline phases individually: 
-* **Phase 2 (Forecasting):** Train LSTM: `python3 train_lstm.py`
-  * Train GRU (Ablation Comparison): `python3 train_gru.py`
-* **Phase 3 (RL Agent):** `python3 train_rl_agent.py`
-* **Phase 5 (Dashboard):** `streamlit run dashboard.py`
 
+### Option A: Local Simulation Mode (macOS / Dev)
+Since Mininet requires Linux kernel namespaces and cannot run natively on macOS, use the simulator to replay historical data into the streaming pipeline:
+
+```bash
+# 1. Start the FastAPI ML Inference Service (loads LSTM/DQN models)
+python3 inference_service.py
+
+# 2. Run the Telemetry Simulator (streams CSV data into Kafka in a loop)
+python3 replay_simulator.py --speed 2.0
+
+# 3. Launch the Interactive Dashboard
+streamlit run dashboard.py --server.headless=true
+```
+Navigate to **http://localhost:8501** and select the **Live Streaming & Self-Healing** mode on the sidebar to watch the system dynamically predict congestion, trigger path adjustments, and display self-healing alerts on the visual map.
+
+---
+
+### Option B: Real SDN Mode (Linux / AWS EC2)
+If running on an Ubuntu VM with Mininet and Open vSwitch installed:
+
+```bash
+# 1. Start the FastAPI ML Inference Service
+python3 inference_service.py
+
+# 2. Launch the os-ken SDN controller (handles forwarding and telemetry collection)
+os-ken-manager simple_switch_13.py predictive_controller.py
+
+# 3. Start the Mininet network topology
+sudo python3 custom_topo.py
+
+# 4. Generate traffic in the Mininet CLI (or run traffic script)
+chmod +x traffic.sh
+./traffic.sh
+
+# 5. Launch the Dashboard
+streamlit run dashboard.py --server.headless=true
+```
+
+---
+
+## Edge Model Optimization & MLOps
+
+To prove edge readiness and low-latency operation, the system features an edge optimization suite utilizing **ONNX Runtime** and **Dynamic INT8 Quantization**:
+
+### 1. Compile & Quantize Models
+Convert PyTorch `.pth` weights to optimized ONNX graphs and generate quantized versions by running:
+```bash
+python3 optimize_models.py
+```
+This performs a full size and latency benchmark run, exporting a performance report to `onnx_benchmarks.json`.
+
+### 2. Edge Optimization Benchmarks
+* **PyTorch Baseline**: ~791 KB model size, ~0.175ms inference latency.
+* **ONNX Runtime (FP32)**: ~795 KB model size, ~0.058ms inference latency (**66.8% speedup**).
+* **ONNX Runtime Quantized (INT8)**: **~214 KB** model size (**72.9% footprint reduction**), **~0.054ms** inference latency (**69.1% speedup**).
+
+### 3. Interactive MLOps Dashboard Controls
+* **Live Engine Swapping**: Under the **MLOps & Edge Optimization (ONNX / INT8)** tab, choose between PyTorch, ONNX, and ONNX Quantized execution backends. Swapping triggers an instant REST call (`/set-engine`) to update the live FastAPI inference thread.
+* **Congestion Spike Injection**: Click the **"🔥 Inject Congestion Spike"** button in the sidebar to simulate high-load scenarios. FastAPI sends a command to the `network-simulation` topic, prompting the telemetry simulator to inject 15 readings of latency > 150ms and high queue depths, demonstrating real-time path self-healing.
+
+---
 
 ## Tech Stack
 
-Every component has been audited for mutual compatibility on **Python 3.12.10**. Here are the key choices and why we made them.
+Every component has been verified for compatibility on **Python 3.12.x**:
 
 | Layer | Technology | Version | Notes |
 |-------|-----------|---------|-------|
-| Runtime | Python | `3.12.10` | Broad ML library support; security patches through Oct 2028 |
-| Infrastructure | AWS EC2 (Ubuntu 22.04) | Jammy | Team is on Windows/Mac — Mininet requires Linux kernel namespaces |
-| Network Emulation | Mininet | `2.3.1b4` | Install from source on 22.04 |
-| SDN Controller | **os-ken** | `3.1.1` | Maintained Ryu fork — see note below |
-| Virtual Switch | Open vSwitch | `2.17.9` | OpenFlow 1.3, from Ubuntu default repos |
-| Deep Learning | PyTorch | `2.10.0` | LSTM/GRU congestion prediction |
-| Reinforcement Learning | Stable Baselines3 | `2.7.1` | DQN/PPO agent for telemetry decisions |
-| Anomaly Detection | Scikit-learn | `1.6.1` | DBSCAN clustering |
-| Dashboard | Streamlit | `1.54.0` | Real-time comparison of reactive vs. predictive |
+| Runtime | Python | `3.12` | Broad library support, security patches |
+| Infrastructure | Docker & Compose | `v2` | Simplifies running Kafka in KRaft mode |
+| Event Streaming | Apache Kafka | `7.5.0` (Confluent) | KRaft mode (Zookeeper-less single-node broker) |
+| Microservices | FastAPI & Uvicorn | `0.138.0` / `0.49.0` | Decoupled async inference backend |
+| SDN Controller | **os-ken** | `3.1.1` | Maintained Ryu fork (compatible with Python 3.12) |
+| Deep Learning | PyTorch | `2.10.0` | LSTM model for forecasting congestion |
+| Reinforcement Learning | Stable Baselines3 | `2.9.0` | DQN agent for polling rate escalation |
+| Visualization | Graphviz & Altair | `0.21.0` / `6.2.1` | Renders dynamic topological path switches |
+| Dashboard | Streamlit | `1.58.0` | Real-time comparative dashboard |
 
+---
 
-### Why os-ken instead of Ryu?
-Ryu is unmaintained (last release: May 2020) and **broken on Python 3.12** — it depends on `distutils`, `asynchat`, and `ssl.wrap_socket()`, all of which were removed in 3.12. os-ken is OpenStack's actively maintained fork with a near-identical API. Migration from any Ryu code or tutorial is a namespace find-and-replace:
-```python
-# Ryu (broken)                        # os-ken (works)
-from ryu.base import app_manager  →   from os_ken.base import app_manager
-from ryu.controller import ofp_event  →   from os_ken.controller import ofp_event
-```
-
-### Why PyTorch over TensorFlow?
-Stable Baselines3 is built on PyTorch — it's a hard dependency (`torch>=2.3.0`). Using TensorFlow would mean abandoning SB3 or installing both frameworks. PyTorch also has broader Python 3.12 support and dominates the modern RL ecosystem.
-
-
-**requirements.txt:**
+## requirements.txt
 
 ```text
 # Deep Learning & RL
@@ -112,14 +183,24 @@ pandas>=2.2
 os-ken==3.1.1
 eventlet==0.35.2
 
-# Dashboard
-streamlit==1.54.0
-
-# Utilities
+# Dashboard & UI
+streamlit>=1.30.0
+altair>=5.0.0
 matplotlib>=3.9
 pyyaml>=6.0
+
+# Streaming & Microservices
+kafka-python-ng>=2.2.2
+fastapi>=0.110.0
+uvicorn>=0.28.0
+requests>=2.31.0
+graphviz>=0.20.0
+onnx>=1.15.0
+onnxruntime>=1.17.0
+onnxscript>=0.1.0
 ```
 
-## License
+---
 
+## License
 MIT — see [LICENSE](LICENSE) for details.
