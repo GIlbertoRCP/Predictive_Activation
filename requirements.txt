@@ -27,3 +27,4 @@ graphviz>=0.20.0
 onnx>=1.15.0
 onnxruntime>=1.17.0
 onnxscript>=0.1.0
+prometheus-client>=0.20.0

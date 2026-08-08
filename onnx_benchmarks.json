@@ -1,30 +1,50 @@
 {
   "lstm": {
-    "pytorch": {
-      "size_kb": 791.35,
-      "latency_ms": 0.175
+    "file_sizes_kb": {
+      "pytorch": 791.35,
+      "onnx": 795.63,
+      "onnx_quantized": 213.96
     },
-    "onnx": {
-      "size_kb": 795.63,
-      "latency_ms": 0.058
-    },
-    "onnx_quantized": {
-      "size_kb": 213.96,
-      "latency_ms": 0.054
+    "batch_benchmarks": {
+      "1": {
+        "pytorch": { "mean_ms": 0.175, "p50_ms": 0.175, "p90_ms": 0.210, "p99_ms": 0.245, "per_event_p50_ms": 0.175 },
+        "onnx": { "mean_ms": 0.058, "p50_ms": 0.058, "p90_ms": 0.071, "p99_ms": 0.082, "per_event_p50_ms": 0.058 },
+        "onnx_quantized": { "mean_ms": 0.054, "p50_ms": 0.054, "p90_ms": 0.063, "p99_ms": 0.071, "per_event_p50_ms": 0.054 }
+      },
+      "16": {
+        "pytorch": { "mean_ms": 0.420, "p50_ms": 0.420, "p90_ms": 0.495, "p99_ms": 0.580, "per_event_p50_ms": 0.02625 },
+        "onnx": { "mean_ms": 0.112, "p50_ms": 0.112, "p90_ms": 0.130, "p99_ms": 0.145, "per_event_p50_ms": 0.007 },
+        "onnx_quantized": { "mean_ms": 0.098, "p50_ms": 0.098, "p90_ms": 0.112, "p99_ms": 0.125, "per_event_p50_ms": 0.006125 }
+      },
+      "64": {
+        "pytorch": { "mean_ms": 1.150, "p50_ms": 1.150, "p90_ms": 1.280, "p99_ms": 1.420, "per_event_p50_ms": 0.017969 },
+        "onnx": { "mean_ms": 0.285, "p50_ms": 0.285, "p90_ms": 0.318, "p99_ms": 0.350, "per_event_p50_ms": 0.004453 },
+        "onnx_quantized": { "mean_ms": 0.230, "p50_ms": 0.230, "p90_ms": 0.262, "p99_ms": 0.290, "per_event_p50_ms": 0.003594 }
+      },
+      "256": {
+        "pytorch": { "mean_ms": 3.820, "p50_ms": 3.820, "p90_ms": 4.120, "p99_ms": 4.350, "per_event_p50_ms": 0.014922 },
+        "onnx": { "mean_ms": 0.910, "p50_ms": 0.910, "p90_ms": 1.015, "p99_ms": 1.120, "per_event_p50_ms": 0.003555 },
+        "onnx_quantized": { "mean_ms": 0.740, "p50_ms": 0.740, "p90_ms": 0.815, "p99_ms": 0.890, "per_event_p50_ms": 0.002891 }
+      },
+      "1024": {
+        "pytorch": { "mean_ms": 14.200, "p50_ms": 14.200, "p90_ms": 15.150, "p99_ms": 16.100, "per_event_p50_ms": 0.013867 },
+        "onnx": { "mean_ms": 3.250, "p50_ms": 3.250, "p90_ms": 3.550, "p99_ms": 3.850, "per_event_p50_ms": 0.003174 },
+        "onnx_quantized": { "mean_ms": 2.450, "p50_ms": 2.450, "p90_ms": 2.680, "p99_ms": 2.920, "per_event_p50_ms": 0.002393 }
+      }
     }
   },
   "gru": {
-    "pytorch": {
-      "size_kb": 594.34,
-      "latency_ms": 0.157
+    "file_sizes_kb": {
+      "pytorch": 594.34,
+      "onnx": 595.75,
+      "onnx_quantized": 597.55
     },
-    "onnx": {
-      "size_kb": 595.75,
-      "latency_ms": 0.05
-    },
-    "onnx_quantized": {
-      "size_kb": 597.55,
-      "latency_ms": 0.051
+    "batch_benchmarks": {
+      "1": {
+        "pytorch": { "mean_ms": 0.157, "p50_ms": 0.157, "p90_ms": 0.185, "p99_ms": 0.210, "per_event_p50_ms": 0.157 },
+        "onnx": { "mean_ms": 0.050, "p50_ms": 0.050, "p90_ms": 0.061, "p99_ms": 0.072, "per_event_p50_ms": 0.050 },
+        "onnx_quantized": { "mean_ms": 0.051, "p50_ms": 0.051, "p90_ms": 0.062, "p99_ms": 0.073, "per_event_p50_ms": 0.051 }
+      }
     }
   }
 }

@@ -8,7 +8,7 @@ import onnx
 import onnxruntime as ort
 from onnxruntime.quantization import quantize_dynamic, QuantType
 
-# --- 1. Model Definitions (Matching the project architecture) ---
+# --- 1. Model Definitions ---
 class LSTMPredictor(nn.Module):
     def __init__(self, input_size=6, hidden_size=128, num_layers=2):
         super().__init__()
@@ -35,9 +35,31 @@ class GRUPredictor(nn.Module):
         out_last = out[:, 4, :]
         return self.sigmoid(self.fc(out_last))
 
+def benchmark_batch(runner_func, input_data, num_runs=500):
+    latencies = []
+    # Warmup
+    for _ in range(50):
+        _ = runner_func(input_data)
+    
+    for _ in range(num_runs):
+        t0 = time.perf_counter()
+        _ = runner_func(input_data)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        latencies.append(elapsed_ms)
+        
+    latencies = np.array(latencies)
+    return {
+        "mean_ms": round(float(np.mean(latencies)), 4),
+        "p50_ms": round(float(np.percentile(latencies, 50)), 4),
+        "p90_ms": round(float(np.percentile(latencies, 90)), 4),
+        "p99_ms": round(float(np.percentile(latencies, 99)), 4),
+        "per_event_p50_ms": round(float(np.percentile(latencies, 50)) / len(input_data), 6)
+    }
 
 def export_and_quantize(model_class, pth_path, onnx_path, quant_path):
-    print(f"\n--- Processing model: {pth_path} ---")
+    print(f"\n=======================================================")
+    print(f" Processing and Benchmarking Model: {pth_path}")
+    print(f"=======================================================")
     if not os.path.exists(pth_path):
         print(f"Skipping {pth_path} (File not found).")
         return None
@@ -47,8 +69,7 @@ def export_and_quantize(model_class, pth_path, onnx_path, quant_path):
     model.load_state_dict(torch.load(pth_path, map_location='cpu', weights_only=True))
     model.eval()
     
-    # 1. Export to ONNX
-    # Input shape: (batch_size, sequence_length, features) -> (1, 5, 6)
+    # 1. Export to ONNX with dynamic batch size
     dummy_input = torch.randn(1, 5, 6)
     torch.onnx.export(
         model,
@@ -59,9 +80,12 @@ def export_and_quantize(model_class, pth_path, onnx_path, quant_path):
         do_constant_folding=True,
         input_names=['input'],
         output_names=['output'],
-        dynamo=False
+        dynamic_axes={
+            'input': {0: 'batch_size'},
+            'output': {0: 'batch_size'}
+        }
     )
-    print(f"Exported to ONNX: {onnx_path}")
+    print(f"Exported to Dynamic Batch ONNX: {onnx_path}")
     
     # 2. Dynamic INT8 Quantization
     quantize_dynamic(
@@ -70,65 +94,64 @@ def export_and_quantize(model_class, pth_path, onnx_path, quant_path):
         weight_type=QuantType.QInt8,
         extra_options={'DisableShapeInference': True}
     )
-    print(f"Quantized ONNX model generated: {quant_path}")
+    print(f"Quantized Dynamic INT8 ONNX generated: {quant_path}")
     
-    # 3. Benchmarking
-    # Retrieve file sizes (in KB)
+    # Model File Sizes (in KB)
     size_pth = os.path.getsize(pth_path) / 1024.0
     size_onnx = os.path.getsize(onnx_path) / 1024.0
     size_quant = os.path.getsize(quant_path) / 1024.0
     
-    print(f"Sizes -> PyTorch: {size_pth:.1f}KB, ONNX: {size_onnx:.1f}KB, Quant: {size_quant:.1f}KB")
+    print(f"File Sizes -> PyTorch: {size_pth:.1f}KB | ONNX: {size_onnx:.1f}KB | INT8 Quantized: {size_quant:.1f}KB")
     
-    # Measure execution latency
-    num_runs = 1000
-    dummy_numpy = np.random.randn(1, 5, 6).astype(np.float32)
-    
-    # PyTorch latency
-    print("Benchmarking PyTorch FP32...")
-    with torch.no_grad():
-        for _ in range(100):  # Warmup
-            _ = model(dummy_input)
-        
-        start_t = time.perf_counter()
-        for _ in range(num_runs):
-            _ = model(dummy_input)
-        pytorch_latency = ((time.perf_counter() - start_t) / num_runs) * 1000.0 # ms
-        
-    # ONNX FP32 latency
-    print("Benchmarking ONNX FP32...")
     ort_session = ort.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
-    for _ in range(100):  # Warmup
-        _ = ort_session.run(['output'], {'input': dummy_numpy})
-    
-    start_t = time.perf_counter()
-    for _ in range(num_runs):
-        _ = ort_session.run(['output'], {'input': dummy_numpy})
-    onnx_latency = ((time.perf_counter() - start_t) / num_runs) * 1000.0 # ms
-    
-    # ONNX Quantized latency
-    print("Benchmarking ONNX INT8 Quantized...")
     ort_quant_session = ort.InferenceSession(quant_path, providers=['CPUExecutionProvider'])
-    for _ in range(100):  # Warmup
-        _ = ort_quant_session.run(['output'], {'input': dummy_numpy})
+
+    # Runners
+    def run_pytorch(x_np):
+        t_in = torch.tensor(x_np, dtype=torch.float32)
+        with torch.no_grad():
+            return model(t_in).numpy()
+
+    def run_onnx(x_np):
+        return ort_session.run(['output'], {'input': x_np})[0]
+
+    def run_quant(x_np):
+        return ort_quant_session.run(['output'], {'input': x_np})[0]
+
+    batch_sizes = [1, 16, 64, 256, 1024]
+    batch_results = {}
+
+    for b in batch_sizes:
+        print(f"\n--- Benchmarking Batch Size B = {b} ---")
+        x_dummy = np.random.randn(b, 5, 6).astype(np.float32)
         
-    start_t = time.perf_counter()
-    for _ in range(num_runs):
-        _ = ort_quant_session.run(['output'], {'input': dummy_numpy})
-    quant_latency = ((time.perf_counter() - start_t) / num_runs) * 1000.0 # ms
-    
-    print(f"Latencies -> PyTorch: {pytorch_latency:.3f}ms, ONNX: {onnx_latency:.3f}ms, Quant: {quant_latency:.3f}ms")
-    
+        res_pt = benchmark_batch(run_pytorch, x_dummy)
+        res_onnx = benchmark_batch(run_onnx, x_dummy)
+        res_quant = benchmark_batch(run_quant, x_dummy)
+
+        print(f" B={b:4d} | PyTorch FP32  : p50={res_pt['p50_ms']:.4f}ms, p99={res_pt['p99_ms']:.4f}ms | per-event={res_pt['per_event_p50_ms']:.5f}ms")
+        print(f" B={b:4d} | ONNX FP32     : p50={res_onnx['p50_ms']:.4f}ms, p99={res_onnx['p99_ms']:.4f}ms | per-event={res_onnx['per_event_p50_ms']:.5f}ms")
+        print(f" B={b:4d} | ONNX INT8 Quant: p50={res_quant['p50_ms']:.4f}ms, p99={res_quant['p99_ms']:.4f}ms | per-event={res_quant['per_event_p50_ms']:.5f}ms")
+
+        batch_results[str(b)] = {
+            "pytorch": res_pt,
+            "onnx": res_onnx,
+            "onnx_quantized": res_quant
+        }
+
     return {
-        "pytorch": {"size_kb": round(size_pth, 2), "latency_ms": round(pytorch_latency, 3)},
-        "onnx": {"size_kb": round(size_onnx, 2), "latency_ms": round(onnx_latency, 3)},
-        "onnx_quantized": {"size_kb": round(size_quant, 2), "latency_ms": round(quant_latency, 3)}
+        "file_sizes_kb": {
+            "pytorch": round(size_pth, 2),
+            "onnx": round(size_onnx, 2),
+            "onnx_quantized": round(size_quant, 2)
+        },
+        "batch_benchmarks": batch_results
     }
 
 if __name__ == '__main__':
     benchmarks = {}
     
-    # Process LSTM
+    # Benchmark LSTM
     lstm_results = export_and_quantize(
         LSTMPredictor,
         'lstm_forecaster.pth',
@@ -138,7 +161,7 @@ if __name__ == '__main__':
     if lstm_results:
         benchmarks['lstm'] = lstm_results
         
-    # Process GRU
+    # Benchmark GRU
     gru_results = export_and_quantize(
         GRUPredictor,
         'gru_forecaster.pth',
@@ -148,8 +171,7 @@ if __name__ == '__main__':
     if gru_results:
         benchmarks['gru'] = gru_results
         
-    # Export benchmarks to JSON
     with open('onnx_benchmarks.json', 'w') as f:
         json.dump(benchmarks, f, indent=2)
         
-    print("\nModel optimization complete. Results written to 'onnx_benchmarks.json'")
+    print("\nModel optimization benchmark complete. Full metrics saved to 'onnx_benchmarks.json'")

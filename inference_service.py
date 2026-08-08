@@ -6,14 +6,25 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from kafka import KafkaConsumer, KafkaProducer
 from sklearn.preprocessing import MinMaxScaler
 from stable_baselines3 import DQN
 import onnxruntime as ort
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 # --- FastAPI Initialization ---
 app = FastAPI(title="SDN Predictive Telemetry Inference Service")
+
+# --- Prometheus Metrics ---
+TELEMETRY_EVENTS = Counter('telemetry_events_total', 'Total raw telemetry events ingested')
+DECISIONS_PRODUCED = Counter('decisions_produced_total', 'Total network control decisions produced')
+INFERENCE_LATENCY = Histogram(
+    'inference_latency_seconds',
+    'Latency of neural network inference in seconds',
+    buckets=[0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05]
+)
+ACTIVE_ENGINE = Gauge('active_inference_engine', 'Active inference backend (0=PyTorch, 1=ONNX, 2=ONNX_INT8)')
 
 # --- Constants & Config ---
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -44,6 +55,7 @@ lstm_onnx_session = None
 lstm_quant_session = None
 current_engine = "pytorch" # pytorch | onnx | onnx_quantized
 last_prediction_latency = 0.0
+recent_latencies = [] # Rolling buffer for p50/p90/p99 calculations
 
 # --- LSTM Model Definition ---
 class CongestionPredictor(nn.Module):
@@ -91,6 +103,8 @@ def startup_event():
     rl_agent = DQN.load(RL_MODEL_PATH)
     print("RL Agent loaded.")
 
+    ACTIVE_ENGINE.set(0) # Default: PyTorch
+
     # Initialize Producer
     for i in range(10):
         try:
@@ -109,10 +123,12 @@ def startup_event():
     consumer_thread.start()
     print("Kafka Consumer Thread started.")
 
-# --- Telemetry Consumer Loop ---
+# --- Micro-Batched Telemetry Consumer Loop ---
 def consume_telemetry():
-    global latest_telemetry, latest_decisions, history_buffer, current_action_idx, last_prediction_latency
-    print(f"Connecting Consumer to {BOOTSTRAP_SERVERS} for topic {TELEMETRY_TOPIC}...")
+    global latest_telemetry, latest_decisions, history_buffer, current_action_idx
+    global last_prediction_latency, recent_latencies
+    
+    print(f"Connecting Vectorized Consumer to {BOOTSTRAP_SERVERS} for topic {TELEMETRY_TOPIC}...")
     consumer = None
     for i in range(15):
         try:
@@ -120,7 +136,9 @@ def consume_telemetry():
                 TELEMETRY_TOPIC,
                 bootstrap_servers=[BOOTSTRAP_SERVERS],
                 value_deserializer=lambda x: json.loads(x.decode('utf-8')),
-                auto_offset_reset='latest'
+                auto_offset_reset='latest',
+                enable_auto_commit=True,
+                max_poll_records=500
             )
             print("Kafka Consumer connected successfully.")
             break
@@ -132,69 +150,112 @@ def consume_telemetry():
         print("Failed to start Kafka Consumer. Thread exiting.")
         return
 
-    for message in consumer:
-        data = message.value
-        dpid = data['switch_id']
-        port_no = data['port_no']
-        port_key = f"{dpid}_{port_no}"
-        
-        # Save latest telemetry for dashboard endpoint
-        latest_telemetry[port_key] = data
+    while True:
+        # Micro-batch polling (non-blocking 5ms poll window)
+        records_dict = consumer.poll(timeout_ms=5, max_records=500)
+        if not records_dict:
+            time.sleep(0.001)
+            continue
 
-        # Extract features
-        features = [
-            data['rx_mbps'],
-            data['tx_mbps'],
-            data['rx_loss'],
-            data['tx_loss'],
-            data['avg_queue_depth'],
-            data['latency_ms']
-        ]
+        raw_events = []
+        for tp, messages in records_dict.items():
+            for message in messages:
+                raw_events.append(message.value)
 
-        # Scale features using correct DataFrame columns to prevent sklearn warnings
-        features_df = pd.DataFrame([features], columns=FEATURES)
-        scaled_feats = scaler.transform(features_df)[0]
+        if not raw_events:
+            continue
 
-        # Update sliding window
-        if port_key not in history_buffer:
-            history_buffer[port_key] = []
-        history_buffer[port_key].append(scaled_feats.tolist())
+        TELEMETRY_EVENTS.inc(len(raw_events))
 
-        if len(history_buffer[port_key]) > SEQUENCE_LENGTH:
-            history_buffer[port_key].pop(0)
+        # Vectorized feature matrix processing
+        port_keys = []
+        features_list = []
+        scaled_last_rx = []
 
-        # Run inference if window is complete
-        if len(history_buffer[port_key]) == SEQUENCE_LENGTH:
-            start_pred_time = time.perf_counter()
-            
-            # Predict Congestion using the selected engine
-            if current_engine == "pytorch" or lstm_onnx_session is None:
-                window_tensor = torch.tensor([history_buffer[port_key]], dtype=torch.float32).to(device)
-                with torch.no_grad():
-                    lstm_prob = lstm_model(window_tensor).item()
-            elif current_engine == "onnx":
-                window_numpy = np.array([history_buffer[port_key]], dtype=np.float32)
-                outputs = lstm_onnx_session.run(['output'], {'input': window_numpy})
-                lstm_prob = float(outputs[0][0][0])
-            else: # onnx_quantized
-                window_numpy = np.array([history_buffer[port_key]], dtype=np.float32)
-                outputs = lstm_quant_session.run(['output'], {'input': window_numpy})
-                lstm_prob = float(outputs[0][0][0])
-                
-            last_prediction_latency = (time.perf_counter() - start_pred_time) * 1000.0 # ms
-            
+        for data in raw_events:
+            dpid = data['switch_id']
+            port_no = data['port_no']
+            port_key = f"{dpid}_{port_no}"
+            latest_telemetry[port_key] = data
+
+            port_keys.append(port_key)
+            features_list.append([
+                data['rx_mbps'],
+                data['tx_mbps'],
+                data['rx_loss'],
+                data['tx_loss'],
+                data['avg_queue_depth'],
+                data['latency_ms']
+            ])
+
+        feats_matrix = np.array(features_list, dtype=np.float32)
+        scaled_matrix = scaler.transform(feats_matrix)
+
+        # Update sliding window buffers and filter batch candidates
+        ready_keys = []
+        ready_windows = []
+        ready_last_rx = []
+        ready_dpids = []
+        ready_ports = []
+
+        for i, port_key in enumerate(port_keys):
+            scaled_row = scaled_matrix[i].tolist()
+            if port_key not in history_buffer:
+                history_buffer[port_key] = []
+            history_buffer[port_key].append(scaled_row)
+
+            if len(history_buffer[port_key]) > SEQUENCE_LENGTH:
+                history_buffer[port_key].pop(0)
+
+            if len(history_buffer[port_key]) == SEQUENCE_LENGTH:
+                ready_keys.append(port_key)
+                ready_windows.append(history_buffer[port_key])
+                ready_last_rx.append(scaled_row[0])
+                parts = port_key.split("_")
+                ready_dpids.append(int(parts[0]))
+                ready_ports.append(int(parts[1]))
+
+        if not ready_windows:
+            continue
+
+        # Zero-Copy Vectorized Batch Inference
+        start_pred_time = time.perf_counter()
+        batch_numpy = np.array(ready_windows, dtype=np.float32) # (N, 5, 6)
+
+        if current_engine == "pytorch" or lstm_onnx_session is None:
+            batch_tensor = torch.tensor(batch_numpy, dtype=torch.float32).to(device)
+            with torch.no_grad():
+                probs = lstm_model(batch_tensor).cpu().numpy().flatten()
+        elif current_engine == "onnx":
+            outputs = lstm_onnx_session.run(['output'], {'input': batch_numpy})
+            probs = outputs[0].flatten()
+        else: # onnx_quantized
+            outputs = lstm_quant_session.run(['output'], {'input': batch_numpy})
+            probs = outputs[0].flatten()
+
+        batch_latency_sec = time.perf_counter() - start_pred_time
+        per_event_latency_ms = (batch_latency_sec / len(ready_windows)) * 1000.0
+        last_prediction_latency = per_event_latency_ms
+
+        INFERENCE_LATENCY.observe(batch_latency_sec / len(ready_windows))
+        recent_latencies.append(per_event_latency_ms)
+        if len(recent_latencies) > 1000:
+            recent_latencies.pop(0)
+
+        # Process micro-batched control decisions
+        for idx in range(len(ready_windows)):
+            dpid = ready_dpids[idx]
+            port_no = ready_ports[idx]
+            port_key = ready_keys[idx]
+            lstm_prob = float(probs[idx])
+
             curr_action = current_action_idx.get(dpid, 0)
-            
-            # Observe: [LSTM Congestion Risk, Port RX utilization (scaled), Current Polling Interval Action]
-            rl_state = np.array([lstm_prob, scaled_feats[0], float(curr_action)], dtype=np.float32)
+            rl_state = np.array([lstm_prob, ready_last_rx[idx], float(curr_action)], dtype=np.float32)
             action, _ = rl_agent.predict(rl_state, deterministic=True)
             action = int(action)
             new_interval = ACTION_MAPPING[action]
-            
-            # Update action index state
             current_action_idx[dpid] = action
 
-            # Self-healing routing decision
             routing_path = "s2" if lstm_prob > RISK_THRESHOLD else "s1"
 
             decision = {
@@ -206,24 +267,35 @@ def consume_telemetry():
                 'polling_interval': new_interval,
                 'routing_path': routing_path,
                 'engine': current_engine,
-                'latency_ms': last_prediction_latency
+                'latency_ms': round(per_event_latency_ms, 4)
             }
 
             latest_decisions[port_key] = decision
-
-            # Publish decision back to Kafka control topic
             if producer:
                 producer.send(CONTROL_TOPIC, value=decision)
-                producer.flush()
+
+        if producer:
+            producer.flush()
+
+        DECISIONS_PRODUCED.inc(len(ready_windows))
 
 # --- REST Endpoints ---
 @app.get("/status")
 def get_status():
+    p50 = float(np.percentile(recent_latencies, 50)) if recent_latencies else 0.0
+    p90 = float(np.percentile(recent_latencies, 90)) if recent_latencies else 0.0
+    p99 = float(np.percentile(recent_latencies, 99)) if recent_latencies else 0.0
+
     return {
-        "status": "Inference service online",
+        "status": "Vectorized ONNX Inference service online",
         "device": str(device),
         "bootstrap_servers": BOOTSTRAP_SERVERS,
         "current_engine": current_engine,
+        "latency_percentiles_ms": {
+            "p50": round(p50, 4),
+            "p90": round(p90, 4),
+            "p99": round(p99, 4)
+        },
         "models_loaded": {
             "pytorch": MODEL_PATH,
             "onnx": "lstm_forecaster.onnx" if lstm_onnx_session else None,
@@ -236,18 +308,28 @@ def set_engine(engine: str):
     global current_engine
     if engine in ["pytorch", "onnx", "onnx_quantized"]:
         current_engine = engine
-        print(f"--- Swapped Inference Engine to: {engine} ---")
+        engine_code = 0 if engine == "pytorch" else (1 if engine == "onnx" else 2)
+        ACTIVE_ENGINE.set(engine_code)
+        print(f"--- Swapped Vectorized Inference Engine to: {engine} ---")
         return {"status": "success", "engine": engine}
-    return {"status": "error", "message": f"Invalid engine choice. Must be one of: pytorch, onnx, onnx_quantized"}
+    return {"status": "error", "message": "Invalid engine choice. Must be one of: pytorch, onnx, onnx_quantized"}
 
 @app.get("/latest")
 def get_latest():
+    p50 = float(np.percentile(recent_latencies, 50)) if recent_latencies else 0.0
+    p99 = float(np.percentile(recent_latencies, 99)) if recent_latencies else 0.0
     return {
         "telemetry": latest_telemetry,
         "decisions": latest_decisions,
         "current_engine": current_engine,
-        "last_latency_ms": last_prediction_latency
+        "last_latency_ms": round(last_prediction_latency, 4),
+        "p50_latency_ms": round(p50, 4),
+        "p99_latency_ms": round(p99, 4)
     }
+
+@app.get("/metrics")
+def get_prometheus_metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 @app.post("/trigger-spike")
 def trigger_spike():
@@ -258,7 +340,6 @@ def trigger_spike():
         print("--- Broadcasted Spike Command to Kafka: network-simulation ---")
         return {"status": "success", "message": "Congestion spike triggered"}
     return {"status": "error", "message": "Kafka producer not connected"}
-
 
 if __name__ == '__main__':
     import uvicorn

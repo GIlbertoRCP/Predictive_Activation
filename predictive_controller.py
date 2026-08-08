@@ -20,6 +20,7 @@ class PredictiveActivationApp(app_manager.OSKenApp):
         self.queue_depths = {}
         self.latencies = {}
         self.polling_intervals = {} # dpid -> interval in seconds
+        self.active_routing_paths = {} # dpid -> active path ("s1" or "s2")
         
         # Initialize Kafka Producer
         self.logger.info("Connecting Producer to Kafka...")
@@ -40,7 +41,7 @@ class PredictiveActivationApp(app_manager.OSKenApp):
             self.logger.error("Failed to connect to Kafka. Exiting App.")
             return
 
-        # Spawn threads
+        # Spawn non-blocking background greenlet tasks
         self.monitor_thread = hub.spawn(self._monitor)
         self.control_consumer_thread = hub.spawn(self._consume_control_messages)
 
@@ -53,9 +54,9 @@ class PredictiveActivationApp(app_manager.OSKenApp):
                 self.datapaths[datapath.id] = datapath
                 self.polling_intervals[datapath.id] = 30 # Default to heartbeat mode
                 
-                # Apply default routing path on Aggregation switches (s3, s4)
+                # Apply default routing path on Aggregation switches (s3, s4) asynchronously
                 if datapath.id in [3, 4]:
-                    self._apply_routing_decision(datapath, "s1")
+                    hub.spawn(self._apply_routing_decision, datapath, "s1")
                     
         elif ev.state == CONFIG_DISPATCHER:
             if datapath.id in self.datapaths:
@@ -63,6 +64,8 @@ class PredictiveActivationApp(app_manager.OSKenApp):
                 del self.datapaths[datapath.id]
                 if datapath.id in self.polling_intervals:
                     del self.polling_intervals[datapath.id]
+                if datapath.id in self.active_routing_paths:
+                    del self.active_routing_paths[datapath.id]
 
     def _monitor(self):
         tick = 0
@@ -179,36 +182,33 @@ class PredictiveActivationApp(app_manager.OSKenApp):
                 polling_interval = int(decision['polling_interval'])
                 routing_path = decision['routing_path']
                 
-                # Apply dynamic polling rate
+                # Apply dynamic polling rate immediately
                 self.polling_intervals[dpid] = polling_interval
-                self.logger.info(f"Kafka Decision for SW {dpid} | Poll: {polling_interval}s | Route Path: {routing_path}")
                 
-                # Apply dynamic routing rules if the switch is currently registered
-                if dpid in self.datapaths:
-                    self._apply_routing_decision(self.datapaths[dpid], routing_path)
+                # Spawn asynchronous greenlet worker for flow modifications to prevent I/O blocking
+                if dpid in self.datapaths and self.active_routing_paths.get(dpid) != routing_path:
+                    hub.spawn(self._apply_routing_decision, self.datapaths[dpid], routing_path)
             except Exception as e:
                 self.logger.error(f"Error handling Kafka control message: {e}")
             
-            hub.sleep(0.01) # Yield to eventlet greenlets
+            hub.sleep(0.001) # Yield to eventlet greenlets
 
     def _apply_routing_decision(self, datapath, path):
         """
-        Dynamically updates flow rules on aggregation switches to reroute traffic.
-        Aggregation switch s3 (dpid 3) connects to Core 1 (s1) on Port 1 and Core 2 (s2) on Port 2.
-        Aggregation switch s4 (dpid 4) connects to Core 1 (s1) on Port 1 and Core 2 (s2) on Port 2.
+        Dynamically updates flow rules on aggregation switches asynchronously.
+        Deduplicates flow updates to keep OpenFlow control channel clean and non-blocking.
         """
         if datapath.id not in [3, 4]:
             return
-            
+
+        self.active_routing_paths[datapath.id] = path
         parser = datapath.ofproto_parser
-        ofproto = datapath.ofproto
         out_port = 1 if path == "s1" else 2
         
-        self.logger.info(f"Updating Switch {datapath.id} flow rules: Routing all cross-network flows to Port {out_port} ({path})")
+        self.logger.info(f"[Non-Blocking I/O] Switch {datapath.id} flow update: Routing cross-network flows to Port {out_port} ({path})")
         
-        # Priority 10 rules override the standard MAC-learning rules (which run at priority 1)
+        # Priority 10 rules override standard MAC-learning rules (priority 1)
         if datapath.id == 3:
-            # Route packets destined to h9-h16 (IPs 10.0.0.9 to 10.0.0.16)
             for host_id in range(9, 17):
                 ip_dst = f"10.0.0.{host_id}"
                 match = parser.OFPMatch(eth_type=0x0800, ipv4_dst=ip_dst)
@@ -216,7 +216,6 @@ class PredictiveActivationApp(app_manager.OSKenApp):
                 self.add_flow(datapath, 10, match, actions)
                 
         elif datapath.id == 4:
-            # Route packets destined to h1-h8 (IPs 10.0.0.1 to 10.0.0.8)
             for host_id in range(1, 9):
                 ip_dst = f"10.0.0.{host_id}"
                 match = parser.OFPMatch(eth_type=0x0800, ipv4_dst=ip_dst)
