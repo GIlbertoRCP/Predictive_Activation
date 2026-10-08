@@ -1,0 +1,90 @@
+{
+  "link_onset": {
+    "1": {
+      "threshold on queue_last": {
+        "pr_auc": 0.2465926190733754,
+        "roc_auc": 0.5278694593876427,
+        "recall_at_precision_0.5": 0.059053678513968116
+      },
+      "threshold on util_last": {
+        "pr_auc": 0.5922064097896871,
+        "roc_auc": 0.8039066228121889,
+        "recall_at_precision_0.5": 0.5969357905514114
+      },
+      "Logistic regression": {
+        "pr_auc": 0.7194019010807057,
+        "roc_auc": 0.8968360381920982,
+        "recall_at_precision_0.5": 0.8459850811759544
+      },
+      "Gradient-boosted trees": {
+        "pr_auc": 0.7854622239733816,
+        "roc_auc": 0.9199353200180297,
+        "recall_at_precision_0.5": 0.8987494515138219
+      },
+      "_prevalence": 0.20765533527209773
+    },
+    "5": {
+      "threshold on queue_last": {
+        "pr_auc": 0.2674251697146394,
+        "roc_auc": 0.5567112332706696,
+        "recall_at_precision_0.5": 0.13580517770952172
+      },
+      "threshold on util_last": {
+        "pr_auc": 0.4523825831697327,
+        "roc_auc": 0.7373012835836297,
+        "recall_at_precision_0.5": 0.46138657305835895
+      },
+      "Logistic regression": {
+        "pr_auc": 0.6317818282429417,
+        "roc_auc": 0.8606397252375246,
+        "recall_at_precision_0.5": 0.7390302764370338
+      },
+      "Gradient-boosted trees": {
+        "pr_auc": 0.690609563876014,
+        "roc_auc": 0.8860384724621762,
+        "recall_at_precision_0.5": 0.8200599678221442
+      },
+      "_prevalence": 0.20765533527209773
+    },
+    "10": {
+      "threshold on queue_last": {
+        "pr_auc": 0.25042887266427655,
+        "roc_auc": 0.5467500344562706,
+        "recall_at_precision_0.5": 0.12498171712739506
+      },
+      "threshold on util_last": {
+        "pr_auc": 0.36368193390525416,
+        "roc_auc": 0.6683958352512207,
+        "recall_at_precision_0.5": 0.1494807664180196
+      },
+      "Logistic regression": {
+        "pr_auc": 0.5831895432712453,
+        "roc_auc": 0.8338462981664556,
+        "recall_at_precision_0.5": 0.6398274096826093
+      },
+      "Gradient-boosted trees": {
+        "pr_auc": 0.6291078640612682,
+        "roc_auc": 0.8583722900383739,
+        "recall_at_precision_0.5": 0.7284627760713763
+      },
+      "_prevalence": 0.20765533527209773
+    }
+  },
+  "flow_activity": {
+    "1": {
+      "persistence_pr_auc": 0.4112956160023748,
+      "gbm_pr_auc": 0.8405013003741579,
+      "prevalence": 0.2927209705372617
+    },
+    "5": {
+      "persistence_pr_auc": 0.34420290961259453,
+      "gbm_pr_auc": 0.7921644554828299,
+      "prevalence": 0.2927209705372617
+    },
+    "10": {
+      "persistence_pr_auc": 0.29351630836229625,
+      "gbm_pr_auc": 0.7222958608957403,
+      "prevalence": 0.2927209705372617
+    }
+  }
+}

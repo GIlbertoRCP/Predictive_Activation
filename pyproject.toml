@@ -1,0 +1,16 @@
+[project]
+name = "predictive-activation"
+version = "1.0.0"
+description = "Forecast-driven telemetry and traffic engineering for AI-cluster fabrics"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26", "scikit-learn>=1.4", "matplotlib>=3.8"]
+
+[project.optional-dependencies]
+torch = ["torch>=2.2"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
