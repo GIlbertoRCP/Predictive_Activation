@@ -2,7 +2,9 @@
 .git/
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+legacy/
+tests/
 .env
-.ipynb_checkpoints/

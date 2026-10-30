@@ -1,34 +1,22 @@
-import numpy as np
-import pandas as pd
-import torch
-import torch.nn as nn
+"""Train the DQN polling-rate agent on top of the trained LSTM forecaster.
+
+    python -m predictive_activation.train.rl_agent
+"""
+
 import gymnasium as gym
+import numpy as np
+import torch
 from gymnasium import spaces
 from stable_baselines3 import DQN
 from stable_baselines3.common.evaluation import evaluate_policy
-from sklearn.preprocessing import MinMaxScaler
 
-# Constants kept consistent with train_lstm.py / dashboard.py
-SEQUENCE_LENGTH = 6  # 5 history rows + 1 current
-LATENCY_THRESHOLD_MS = 100.0
-FEATURES = ['rx_mbps', 'tx_mbps', 'rx_loss', 'tx_loss', 'avg_queue_depth', 'latency_ms']
-SEED = 42
+from predictive_activation import config
+from predictive_activation.data import add_labels, fit_scaler, load_telemetry
+from predictive_activation.models import load_model
 
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-
-
-# --- LSTM architecture (matches train_lstm.py exactly so the checkpoint loads) ---
-class CongestionPredictor(nn.Module):
-    def __init__(self, input_size=6, hidden_size=128, num_layers=2):
-        super(CongestionPredictor, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 1)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        out, _ = self.lstm(x)
-        return self.sigmoid(self.fc(out[:, -1, :]))
+SEQUENCE_LENGTH = config.SEQUENCE_LENGTH
+FEATURES = config.FEATURES
+SEED = config.SEED
 
 
 class SDNTelemetryEnv(gym.Env):
@@ -37,7 +25,7 @@ class SDNTelemetryEnv(gym.Env):
 
     BUG FIXES vs previous version
     -----------------------------
-    1. Congestion ground truth now matches train_lstm.py: `latency_ms > 100 ms`
+    1. Congestion ground truth now matches the forecaster training labels: `latency_ms > 100 ms`
        on the next step. Previously the env used `scaled_latency_ms > 0.5`
        (≈ raw latency > 1855 ms), which disagreed with what the LSTM was
        trained to predict.
@@ -54,15 +42,12 @@ class SDNTelemetryEnv(gym.Env):
     def __init__(self, csv_path, model_path, alpha=1.0, beta=1.0):
         super().__init__()
         print("Loading dataset and preparing per-(switch, port) traces...")
-        df = pd.read_csv(csv_path)
-        df = df.sort_values(by=['switch_id', 'port_no', 'timestamp']).reset_index(drop=True)
-
         # Ground-truth congestion in RAW ms, BEFORE scaling
-        df['is_congested'] = (df['latency_ms'] > LATENCY_THRESHOLD_MS).astype(int)
+        df = add_labels(load_telemetry(csv_path))
 
         # Scale features for LSTM input (matches training)
-        self.scaler = MinMaxScaler()
-        df[FEATURES] = self.scaler.fit_transform(df[FEATURES])
+        self.scaler = fit_scaler(df)
+        df[FEATURES] = self.scaler.transform(df[FEATURES].to_numpy())
 
         # Build per-(switch, port) traces; reject any trace too short to play.
         self.traces = []
@@ -92,13 +77,9 @@ class SDNTelemetryEnv(gym.Env):
         self.alpha = alpha
         self.beta = beta
 
-        # Load LSTM oracle (matches train_lstm.py architecture)
+        # Load the trained LSTM forecaster
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.lstm_model = CongestionPredictor().to(self.device)
-        self.lstm_model.load_state_dict(
-            torch.load(model_path, map_location=self.device, weights_only=True)
-        )
-        self.lstm_model.eval()
+        self.lstm_model = load_model("lstm", model_path, self.device)
 
         # Episode state
         self.current_trace = None
@@ -107,7 +88,7 @@ class SDNTelemetryEnv(gym.Env):
         self.rng = np.random.default_rng(SEED)
 
     def _get_lstm_prediction(self, features, step):
-        """SEQUENCE_LENGTH-1 history rows ending at `step`. Within-trace only."""
+        """SEQUENCE_LENGTH rows ending at (and including) `step`. Within-trace only."""
         window = features[step - (SEQUENCE_LENGTH - 1):step + 1]
         x_tensor = torch.tensor(window, dtype=torch.float32).unsqueeze(0).to(self.device)
         with torch.no_grad():
@@ -161,8 +142,8 @@ class SDNTelemetryEnv(gym.Env):
 if __name__ == "__main__":
     print("Initializing SDN Telemetry Environment...")
     env = SDNTelemetryEnv(
-        csv_path='telemetry_dataset.csv',
-        model_path='lstm_forecaster.pth',
+        csv_path=config.DATASET_PATH,
+        model_path=config.LSTM_PATH,
     )
 
     print("Building Deep Q-Network (DQN) Agent...")
@@ -180,5 +161,5 @@ if __name__ == "__main__":
     mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
     print(f"Mean Reward per Episode: {mean_reward:.2f} +/- {std_reward:.2f}")
 
-    model.save("dqn_telemetry_agent")
-    print("\nRL Agent saved to 'dqn_telemetry_agent.zip'")
+    model.save(config.RL_AGENT_PATH)
+    print(f"\nRL Agent saved to {config.RL_AGENT_PATH}.zip")

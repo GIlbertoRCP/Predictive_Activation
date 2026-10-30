@@ -1,18 +1,19 @@
-#!/usr/bin/env python3
-"""
-High-Throughput Synthetic Kafka Telemetry Stress Generator
-Floods Kafka topic [network-telemetry] with up to 50,000+ telemetry events/second
-to benchmark thread contention, batching throughput, and memory allocations.
+"""Synthetic Kafka telemetry load generator. Measures producer-side
+throughput into the [network-telemetry] topic.
+
+    python -m predictive_activation.stress_generator --rate 50000 --duration 10
 """
 
-import os
-import sys
-import time
-import json
-import random
 import argparse
+import json
 import multiprocessing as mp
+import random
+import time
+
 from kafka import KafkaProducer
+
+from predictive_activation import config
+
 
 def worker_producer(worker_id, target_rate_per_worker, duration, bootstrap_servers, topic, batch_size):
     """
@@ -83,7 +84,7 @@ def worker_producer(worker_id, target_rate_per_worker, duration, bootstrap_serve
     return total_sent, elapsed_total
 
 
-def run_stress_test(target_rate=50000, duration=10, bootstrap_servers="localhost:9092", topic="network-telemetry", num_workers=4, batch_size=65536):
+def run_stress_test(target_rate=50000, duration=10, bootstrap_servers=config.BOOTSTRAP_SERVERS, topic=config.TELEMETRY_TOPIC, num_workers=4, batch_size=65536):
     print("=" * 70)
     print(f"   KAFKA TELEMETRY STRESS GENERATOR (Target: {target_rate:,} events/sec)")
     print("=" * 70)
@@ -127,8 +128,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Synthetic Kafka Telemetry Stress Generator")
     parser.add_argument("--rate", type=int, default=50000, help="Target telemetry events per second (default: 50000)")
     parser.add_argument("--duration", type=float, default=10.0, help="Duration of stress test in seconds (default: 10.0)")
-    parser.add_argument("--bootstrap-servers", type=str, default="localhost:9092", help="Kafka bootstrap servers")
-    parser.add_argument("--topic", type=str, default="network-telemetry", help="Target Kafka topic")
+    parser.add_argument("--bootstrap-servers", type=str, default=config.BOOTSTRAP_SERVERS, help="Kafka bootstrap servers")
+    parser.add_argument("--topic", type=str, default=config.TELEMETRY_TOPIC, help="Target Kafka topic")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel worker processes (default: 4)")
     parser.add_argument("--batch-size", type=int, default=65536, help="Kafka producer batch size in bytes (default: 65536)")
 

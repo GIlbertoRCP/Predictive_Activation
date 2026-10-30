@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   kafka:
@@ -28,7 +27,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: inference_service
-    command: uvicorn inference_service:app --host 0.0.0.0 --port 8000
+    command: uvicorn predictive_activation.service:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
     environment:
@@ -41,7 +40,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: streamlit_dashboard
-    command: streamlit run dashboard.py --server.port=8501 --server.address=0.0.0.0
+    command: streamlit run src/predictive_activation/dashboard.py --server.port=8501 --server.address=0.0.0.0
     ports:
       - "8501:8501"
     environment:

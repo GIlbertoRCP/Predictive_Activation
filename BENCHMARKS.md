@@ -1,93 +1,105 @@
-# Predictive Telemetry & Sub-Millisecond Control Plane Benchmarks
+# Benchmarks
 
-This document presents empirical throughput, latency percentiles ($p_{50}$, $p_{90}$, $p_{99}$), and memory footprint benchmarks for the **Predictive Network Telemetry & Activation System**. 
+Every number here comes from [`benchmarks/results.json`](benchmarks/results.json), which `python -m predictive_activation.optimize` writes. Re-run that command to reproduce them on your machine.
 
-The system transitions the network monitoring control plane from a single-event MLOps pipeline into a high-throughput, sub-millisecond vectorized network control plane capable of processing over **50,000 telemetry events per second**.
+> **Note:** An earlier version of this file reported Kafka throughput (51,420 events/s), lock-contention and end-to-end control-loop figures that no script in the repo produced. Those figures have been removed. A section comes back only once it has been measured.
 
----
+## Environment
 
-## 1. High-Throughput Ingestion Benchmarks (Kafka Stress Generator)
+| | |
+| :--- | :--- |
+| CPU | AMD Ryzen 7 7700X (8 cores / 16 threads) |
+| OS | Windows 11 (10.0.26200) |
+| Python | 3.12.15 |
+| PyTorch | 2.10.0 (CPU build, 8 intra-op threads) |
+| ONNX Runtime | 1.31.1, `CPUExecutionProvider`, default threading |
+| Method | 50 warm-up runs, then 500 timed runs per (batch size, backend). Inputs are real windows sampled from `data/telemetry_dataset.csv`. |
+| Measured | 2026-10-30 |
 
-Using the synthetic multi-process Kafka telemetry load generator (`kafka_stress_generator.py`), the ingestion engine was stress-tested against Apache Kafka under peak load conditions:
+Single-machine microbenchmarks vary by roughly ±10–30% between runs, especially at small batch sizes. Compare backends within a run, not across machines.
 
-| Parameter | Measured Value | Notes |
-| :--- | :--- | :--- |
-| **Target Telemetry Ingestion Rate** | **50,000 events/sec** | Pre-encoded multi-worker JSON stream |
-| **Achieved Ingestion Throughput** | **51,420 events/sec** | Measured across 4 parallel worker processes |
-| **Kafka Producer Batch Size** | 64 KB (65,536 bytes) | Micro-batching with `linger_ms=1` |
-| **Consumer Micro-Batch Window** | 5 ms poll window (`max_records=500`) | Non-blocking zero-copy poll loop |
-| **Consumer CPU Memory Allocation** | ~48.5 MB | Stable heap allocation under sustained load |
-| **Thread Contention Index** | **0.02% lock wait** | Asynchronous non-blocking Python greenlets |
+## 1. Model accuracy, and why it is not the headline
 
----
+The checkpoints were retrained on 2026-10-30. The previously committed `.pth` files were left over from before the label bug fix and output ≈4×10⁻⁶ for every input, so the live system could never trigger a reroute.
 
-## 2. Model Footprint & Memory Reduction
+| Model | F1 (random 80/20 split) | Precision | Recall |
+| :--- | ---: | ---: | ---: |
+| LSTM | 99.14% | 99.63% | 98.66% |
+| GRU | 99.23% | 99.63% | 98.84% |
+| **Persistence baseline** (predict that the next step matches the current one) | **99.30%** | 99.43% | 99.18% |
 
-Dynamic INT8 quantization compresses weight matrices and reduces memory overhead for edge network appliances while maintaining high prediction accuracy:
+The congestion label changes on only 0.6% of steps, so copying the current state forward is as good as either network. On this dataset the recurrent models add nothing over that baseline. The random split also overlaps windows between train and test, which flatters the networks. A time-based split and a harder target (for example, predicting congestion several steps ahead) are planned.
 
-| Model Architecture | Execution Backend | Model Size (KB) | Memory Reduction |
-| :--- | :--- | :--- | :--- |
-| **LSTM Congestion Predictor** | PyTorch FP32 | 791.35 KB | Baseline |
-| **LSTM Congestion Predictor** | ONNX Runtime FP32 | 795.63 KB | +0.5% (Graph metadata overhead) |
-| **LSTM Congestion Predictor** | **ONNX INT8 Quantized** | **213.96 KB** | **-72.9% Footprint Reduction** |
-| **GRU Congestion Predictor** | PyTorch FP32 | 594.34 KB | Baseline |
-| **GRU Congestion Predictor** | ONNX Runtime FP32 | 595.75 KB | +0.2% |
-| **GRU Congestion Predictor** | ONNX INT8 Quantized | 597.55 KB | Nominal |
+**DQN polling agent:** over 64 evaluation episodes it averages 5,056 ± 6,421 reward. A fixed rule ("poll every 1s when risk > 0.7, otherwise every 30s") averages 4,990 ± 6,453. The two are indistinguishable.
 
----
+## 2. Model size
 
-## 3. Single-Sample ($B=1$) Inference Latency Comparison
+| Model | PyTorch `.pth` | ONNX FP32 | ONNX INT8 (dynamic) | INT8 reduction |
+| :--- | ---: | ---: | ---: | ---: |
+| LSTM | 792.6 KB | 792.6 KB | **210.6 KB** | **−73.4%** |
+| GRU | 595.6 KB | 594.7 KB | 596.5 KB | none |
 
-Comparative evaluation of single-sample inference latency across PyTorch FP32, ONNX Runtime CPU, and INT8-quantized ONNX:
+ONNX Runtime's dynamic quantizer has an integer LSTM kernel (`DynamicQuantizeLSTM`) but no GRU equivalent. For the GRU, only the final linear layer gets quantized, so its size and speed are essentially unchanged.
 
-| Backend Engine | $p_{50}$ Latency (ms) | $p_{90}$ Latency (ms) | $p_{99}$ Latency (ms) | Speedup vs PyTorch |
-| :--- | :--- | :--- | :--- | :--- |
-| **PyTorch FP32** | 0.1750 ms | 0.2100 ms | 0.2450 ms | 1.0x (Baseline) |
-| **ONNX Runtime FP32** | 0.0580 ms | 0.0710 ms | 0.0820 ms | **3.01x Speedup** |
-| **ONNX INT8 Quantized** | **0.0540 ms** | **0.0630 ms** | **0.0710 ms** | **3.24x Speedup** |
+## 3. INT8 accuracy parity (LSTM)
 
----
+Measured against PyTorch FP32 on all 24,909 windows in the dataset:
 
-## 4. Vectorized Micro-Batch Inference Scaling
+| Backend | Max \|Δp\| | Mean \|Δp\| | Same reroute decision at 0.70 |
+| :--- | ---: | ---: | ---: |
+| ONNX FP32 | 0.000001 | 0.000000 | 100.00% |
+| ONNX INT8 | 0.1669 | 0.0011 | 99.92% (21 of 24,909 windows flip) |
 
-By grouping ready telemetry feature vectors into matrix arrays ($N \times 5 \times 6$), per-event inference time drops significantly due to vectorized SIMD instructions:
+## 4. Inference latency
 
-| Batch Size ($B$) | Engine Backend | Total Batch $p_{50}$ (ms) | Total Batch $p_{99}$ (ms) | **Per-Event $p_{50}$ Latency (ms)** | Vectorized Speedup vs Single |
-| :---: | :--- | :---: | :---: | :---: | :---: |
-| **1** | PyTorch FP32 | 0.1750 ms | 0.2450 ms | **0.17500 ms** | 1.0x |
-| **1** | ONNX FP32 | 0.0580 ms | 0.0820 ms | **0.05800 ms** | 3.0x |
-| **1** | **ONNX INT8** | 0.0540 ms | 0.0710 ms | **0.05400 ms** | 3.2x |
-| **16** | PyTorch FP32 | 0.4200 ms | 0.5800 ms | **0.02625 ms** | 6.6x |
-| **16** | ONNX FP32 | 0.1120 ms | 0.1450 ms | **0.00700 ms** | 25.0x |
-| **16** | **ONNX INT8** | 0.0980 ms | 0.1250 ms | **0.00612 ms** | **28.5x** |
-| **64** | PyTorch FP32 | 1.1500 ms | 1.4200 ms | **0.01796 ms** | 9.7x |
-| **64** | ONNX FP32 | 0.2850 ms | 0.3500 ms | **0.00445 ms** | 39.3x |
-| **64** | **ONNX INT8** | 0.2300 ms | 0.2900 ms | **0.00359 ms** | **48.7x** |
-| **256** | PyTorch FP32 | 3.8200 ms | 4.3500 ms | **0.01492 ms** | 11.7x |
-| **256** | ONNX FP32 | 0.9100 ms | 1.1200 ms | **0.00355 ms** | 49.2x |
-| **256** | **ONNX INT8** | 0.7400 ms | 0.8900 ms | **0.00289 ms** | **60.5x** |
-| **1024** | PyTorch FP32 | 14.2000 ms | 16.1000 ms | **0.01386 ms** | 12.6x |
-| **1024** | ONNX FP32 | 3.2500 ms | 3.8500 ms | **0.00317 ms** | 55.2x |
-| **1024** | **ONNX INT8** | 2.4500 ms | 2.9200 ms | **0.00239 ms** | **73.1x** |
+### LSTM
 
----
+| Batch size | Backend | p50 (ms) | p90 (ms) | p99 (ms) | Per-event p50 (µs) | Speedup vs PyTorch (p50) |
+| ---: | :--- | ---: | ---: | ---: | ---: | ---: |
+| 1 | PyTorch FP32 | 0.2245 | 0.2450 | 0.3419 | 224.50 | 1.00x |
+| 1 | ONNX Runtime FP32 | 0.0540 | 0.0618 | 0.0760 | 54.00 | 4.16x |
+| 1 | ONNX Runtime INT8 | 0.0540 | 0.0553 | 0.0812 | 54.00 | 4.16x |
+| 16 | PyTorch FP32 | 0.2986 | 0.3297 | 0.5030 | 18.66 | 1.00x |
+| 16 | ONNX Runtime FP32 | 0.1153 | 0.1200 | 0.1582 | 7.21 | 2.59x |
+| 16 | ONNX Runtime INT8 | 0.0877 | 0.0936 | 0.1632 | 5.48 | 3.40x |
+| 64 | PyTorch FP32 | 0.4866 | 0.5486 | 0.7470 | 7.60 | 1.00x |
+| 64 | ONNX Runtime FP32 | 0.3127 | 0.3283 | 0.4289 | 4.89 | 1.56x |
+| 64 | ONNX Runtime INT8 | 0.1984 | 0.2153 | 0.3525 | 3.10 | 2.45x |
+| 256 | PyTorch FP32 | 1.2584 | 1.3566 | 1.5779 | 4.92 | 1.00x |
+| 256 | ONNX Runtime FP32 | 1.0922 | 1.1730 | 1.2808 | 4.27 | 1.15x |
+| 256 | ONNX Runtime INT8 | 0.5804 | 0.6080 | 0.7415 | 2.27 | 2.17x |
+| 1024 | PyTorch FP32 | 4.3109 | 4.5748 | 4.8570 | 4.21 | 1.00x |
+| 1024 | ONNX Runtime FP32 | 4.2939 | 4.5787 | 5.5220 | 4.19 | 1.00x |
+| 1024 | ONNX Runtime INT8 | 2.2147 | 2.3640 | 2.5958 | 2.16 | 1.95x |
 
-## 5. End-to-End Control Plane Latency Profile
+### GRU
 
-End-to-end data pipeline latency from raw packet metric emission at the Mininet/OpenFlow switch to active flow table installation:
+| Batch size | Backend | p50 (ms) | p90 (ms) | p99 (ms) | Per-event p50 (µs) | Speedup vs PyTorch (p50) |
+| ---: | :--- | ---: | ---: | ---: | ---: | ---: |
+| 1 | PyTorch FP32 | 0.3560 | 0.4040 | 0.5750 | 356.00 | 1.00x |
+| 1 | ONNX Runtime FP32 | 0.0537 | 0.0615 | 0.0732 | 53.65 | 6.63x |
+| 1 | ONNX Runtime INT8 | 0.0594 | 0.0659 | 0.0795 | 59.40 | 5.99x |
+| 16 | PyTorch FP32 | 0.5247 | 0.6045 | 0.8057 | 32.79 | 1.00x |
+| 16 | ONNX Runtime FP32 | 0.2248 | 0.2430 | 0.4716 | 14.05 | 2.33x |
+| 16 | ONNX Runtime INT8 | 0.2172 | 0.2743 | 0.6123 | 13.58 | 2.42x |
+| 64 | PyTorch FP32 | 0.8530 | 0.9537 | 1.1876 | 13.33 | 1.00x |
+| 64 | ONNX Runtime FP32 | 0.6718 | 0.7119 | 0.8511 | 10.50 | 1.27x |
+| 64 | ONNX Runtime INT8 | 0.6719 | 0.7179 | 0.8220 | 10.50 | 1.27x |
+| 256 | PyTorch FP32 | 2.1399 | 2.3226 | 2.6819 | 8.36 | 1.00x |
+| 256 | ONNX Runtime FP32 | 2.4858 | 2.6083 | 2.8283 | 9.71 | 0.86x |
+| 256 | ONNX Runtime INT8 | 2.4859 | 2.5776 | 2.8238 | 9.71 | 0.86x |
+| 1024 | PyTorch FP32 | 5.2933 | 5.5944 | 5.8916 | 5.17 | 1.00x |
+| 1024 | ONNX Runtime FP32 | 10.2364 | 10.5056 | 10.9342 | 10.00 | 0.52x |
+| 1024 | ONNX Runtime INT8 | 10.2658 | 10.6139 | 11.0503 | 10.02 | 0.52x |
 
-```
-[Packet Event] ──► [Kafka Ingest] ──► [NumPy Scale & Vector ONNX] ──► [Kafka Control] ──► [Async Ryu FlowMod]
-     (0.15ms)         (0.22ms)                (0.054ms)                 (0.18ms)              (0.25ms)
-```
+### What the latency numbers show
 
-- **Total $p_{50}$ End-to-End Pipeline Latency**: **0.854 ms** (Sub-millisecond control loop)
-- **Total $p_{99}$ End-to-End Pipeline Latency**: **1.420 ms**
+- **At batch size 1, ONNX Runtime is about 4× faster than PyTorch for the LSTM and about 6× for the GRU.** Most of that gap is PyTorch's per-call overhead, not compute.
+- **INT8 adds nothing at batch size 1 but roughly doubles LSTM throughput at large batches** (B=1024: 2.16 µs vs 4.21 µs per event).
+- **Batching cuts per-event cost about 50× for PyTorch** (224 µs at B=1 vs 4.2 µs at B=1024). This is why the service micro-batches Kafka records.
+- **For large GRU batches, ONNX Runtime FP32 is about 2× *slower* than PyTorch** on this CPU. This hasn't been investigated yet; thread settings are the first suspect.
 
----
+## 5. Not yet re-measured
 
-## Key Performance Takeaways
-
-1. **Sub-Millisecond Network Control**: Switching from single-sample PyTorch evaluation to INT8-quantized vector batch ONNX runtime reduces per-event inference latency down to **0.00239 ms (2.39 microseconds)** at $B=1024$.
-2. **Resource Efficiency**: Quantization shrinks model size by **72.9%** (from 791 KB down to 213 KB), enabling deployment on memory-constrained edge switches and smartNICs.
-3. **Non-Blocking Control Plane**: Decoupling OpenFlow rule installation into asynchronous greenlet tasks guarantees zero telemetry stream backpressure during traffic spikes.
+- **Kafka producer throughput.** Run `python -m predictive_activation.stress_generator --rate 50000 --duration 10` against `docker compose up -d kafka`. It measures what the producer sends, not consumer lag or end-to-end delivery.
+- **End-to-end control-loop latency** (switch stats → decision → flow rule). This needs the Linux/Mininet setup in `legacy/sdn/`.

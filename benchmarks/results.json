@@ -1,0 +1,346 @@
+{
+  "environment": {
+    "measured_at": "2026-10-30T23:07:05+00:00",
+    "cpu": "AMD Ryzen 7 7700X 8-Core Processor",
+    "logical_cores": 16,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.15",
+    "torch": "2.10.0+cpu",
+    "torch_threads": 8,
+    "onnxruntime": "1.31.1",
+    "onnx": "1.23.2"
+  },
+  "lstm": {
+    "file_sizes_kb": {
+      "pytorch": 792.63,
+      "onnx": 792.64,
+      "onnx_quantized": 210.64
+    },
+    "quantized_op_types": [
+      "DynamicQuantizeLSTM",
+      "DynamicQuantizeLinear",
+      "MatMulInteger"
+    ],
+    "batch_benchmarks": {
+      "1": {
+        "pytorch": {
+          "mean_ms": 0.2281,
+          "p50_ms": 0.2245,
+          "p90_ms": 0.245,
+          "p99_ms": 0.3419,
+          "per_event_p50_ms": 0.2245,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 0.0562,
+          "p50_ms": 0.054,
+          "p90_ms": 0.0618,
+          "p99_ms": 0.076,
+          "per_event_p50_ms": 0.054,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 0.055,
+          "p50_ms": 0.054,
+          "p90_ms": 0.0553,
+          "p99_ms": 0.0812,
+          "per_event_p50_ms": 0.054,
+          "runs": 500
+        }
+      },
+      "16": {
+        "pytorch": {
+          "mean_ms": 0.31,
+          "p50_ms": 0.2986,
+          "p90_ms": 0.3297,
+          "p99_ms": 0.503,
+          "per_event_p50_ms": 0.018663,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 0.1177,
+          "p50_ms": 0.1153,
+          "p90_ms": 0.12,
+          "p99_ms": 0.1582,
+          "per_event_p50_ms": 0.007206,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 0.092,
+          "p50_ms": 0.0877,
+          "p90_ms": 0.0936,
+          "p99_ms": 0.1632,
+          "per_event_p50_ms": 0.005481,
+          "runs": 500
+        }
+      },
+      "64": {
+        "pytorch": {
+          "mean_ms": 0.4968,
+          "p50_ms": 0.4866,
+          "p90_ms": 0.5486,
+          "p99_ms": 0.747,
+          "per_event_p50_ms": 0.007604,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 0.3185,
+          "p50_ms": 0.3127,
+          "p90_ms": 0.3283,
+          "p99_ms": 0.4289,
+          "per_event_p50_ms": 0.004886,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 0.2097,
+          "p50_ms": 0.1984,
+          "p90_ms": 0.2153,
+          "p99_ms": 0.3525,
+          "per_event_p50_ms": 0.003101,
+          "runs": 500
+        }
+      },
+      "256": {
+        "pytorch": {
+          "mean_ms": 1.2798,
+          "p50_ms": 1.2584,
+          "p90_ms": 1.3566,
+          "p99_ms": 1.5779,
+          "per_event_p50_ms": 0.004916,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 1.1086,
+          "p50_ms": 1.0922,
+          "p90_ms": 1.173,
+          "p99_ms": 1.2808,
+          "per_event_p50_ms": 0.004266,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 0.5893,
+          "p50_ms": 0.5804,
+          "p90_ms": 0.608,
+          "p99_ms": 0.7415,
+          "per_event_p50_ms": 0.002267,
+          "runs": 500
+        }
+      },
+      "1024": {
+        "pytorch": {
+          "mean_ms": 4.3533,
+          "p50_ms": 4.3109,
+          "p90_ms": 4.5748,
+          "p99_ms": 4.857,
+          "per_event_p50_ms": 0.00421,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 4.3534,
+          "p50_ms": 4.2939,
+          "p90_ms": 4.5787,
+          "p99_ms": 5.522,
+          "per_event_p50_ms": 0.004193,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 2.2261,
+          "p50_ms": 2.2147,
+          "p90_ms": 2.364,
+          "p99_ms": 2.5958,
+          "per_event_p50_ms": 0.002163,
+          "runs": 500
+        }
+      }
+    },
+    "accuracy_parity": {
+      "n_windows": 24909,
+      "max_abs_diff": 0.166944,
+      "mean_abs_diff": 0.001144,
+      "decision_agreement": 0.999157,
+      "positive_decisions_fp32": 10558
+    },
+    "accuracy_parity_by_engine": {
+      "onnx": {
+        "n_windows": 24909,
+        "max_abs_diff": 1e-06,
+        "mean_abs_diff": 0.0,
+        "decision_agreement": 1.0,
+        "positive_decisions_fp32": 10558
+      },
+      "onnx_quantized": {
+        "n_windows": 24909,
+        "max_abs_diff": 0.166944,
+        "mean_abs_diff": 0.001144,
+        "decision_agreement": 0.999157,
+        "positive_decisions_fp32": 10558
+      }
+    }
+  },
+  "gru": {
+    "file_sizes_kb": {
+      "pytorch": 595.61,
+      "onnx": 594.68,
+      "onnx_quantized": 596.54
+    },
+    "quantized_op_types": [
+      "DynamicQuantizeLinear",
+      "MatMulInteger"
+    ],
+    "batch_benchmarks": {
+      "1": {
+        "pytorch": {
+          "mean_ms": 0.3585,
+          "p50_ms": 0.356,
+          "p90_ms": 0.404,
+          "p99_ms": 0.575,
+          "per_event_p50_ms": 0.356,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 0.0525,
+          "p50_ms": 0.0537,
+          "p90_ms": 0.0615,
+          "p99_ms": 0.0732,
+          "per_event_p50_ms": 0.05365,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 0.0611,
+          "p50_ms": 0.0594,
+          "p90_ms": 0.0659,
+          "p99_ms": 0.0795,
+          "per_event_p50_ms": 0.0594,
+          "runs": 500
+        }
+      },
+      "16": {
+        "pytorch": {
+          "mean_ms": 0.5266,
+          "p50_ms": 0.5247,
+          "p90_ms": 0.6045,
+          "p99_ms": 0.8057,
+          "per_event_p50_ms": 0.032794,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 0.2352,
+          "p50_ms": 0.2248,
+          "p90_ms": 0.243,
+          "p99_ms": 0.4716,
+          "per_event_p50_ms": 0.01405,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 0.2421,
+          "p50_ms": 0.2172,
+          "p90_ms": 0.2743,
+          "p99_ms": 0.6123,
+          "per_event_p50_ms": 0.013575,
+          "runs": 500
+        }
+      },
+      "64": {
+        "pytorch": {
+          "mean_ms": 0.8633,
+          "p50_ms": 0.853,
+          "p90_ms": 0.9537,
+          "p99_ms": 1.1876,
+          "per_event_p50_ms": 0.013327,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 0.6761,
+          "p50_ms": 0.6718,
+          "p90_ms": 0.7119,
+          "p99_ms": 0.8511,
+          "per_event_p50_ms": 0.010497,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 0.6816,
+          "p50_ms": 0.6719,
+          "p90_ms": 0.7179,
+          "p99_ms": 0.822,
+          "per_event_p50_ms": 0.010498,
+          "runs": 500
+        }
+      },
+      "256": {
+        "pytorch": {
+          "mean_ms": 2.1641,
+          "p50_ms": 2.1399,
+          "p90_ms": 2.3226,
+          "p99_ms": 2.6819,
+          "per_event_p50_ms": 0.008359,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 2.5001,
+          "p50_ms": 2.4858,
+          "p90_ms": 2.6083,
+          "p99_ms": 2.8283,
+          "per_event_p50_ms": 0.00971,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 2.4888,
+          "p50_ms": 2.4859,
+          "p90_ms": 2.5776,
+          "p99_ms": 2.8238,
+          "per_event_p50_ms": 0.009711,
+          "runs": 500
+        }
+      },
+      "1024": {
+        "pytorch": {
+          "mean_ms": 5.3101,
+          "p50_ms": 5.2933,
+          "p90_ms": 5.5944,
+          "p99_ms": 5.8916,
+          "per_event_p50_ms": 0.005169,
+          "runs": 500
+        },
+        "onnx": {
+          "mean_ms": 10.2262,
+          "p50_ms": 10.2364,
+          "p90_ms": 10.5056,
+          "p99_ms": 10.9342,
+          "per_event_p50_ms": 0.009996,
+          "runs": 500
+        },
+        "onnx_quantized": {
+          "mean_ms": 10.2849,
+          "p50_ms": 10.2658,
+          "p90_ms": 10.6139,
+          "p99_ms": 11.0503,
+          "per_event_p50_ms": 0.010025,
+          "runs": 500
+        }
+      }
+    },
+    "accuracy_parity": {
+      "n_windows": 24909,
+      "max_abs_diff": 0.001886,
+      "mean_abs_diff": 1.4e-05,
+      "decision_agreement": 1.0,
+      "positive_decisions_fp32": 10555
+    },
+    "accuracy_parity_by_engine": {
+      "onnx": {
+        "n_windows": 24909,
+        "max_abs_diff": 1e-06,
+        "mean_abs_diff": 0.0,
+        "decision_agreement": 1.0,
+        "positive_decisions_fp32": 10555
+      },
+      "onnx_quantized": {
+        "n_windows": 24909,
+        "max_abs_diff": 0.001886,
+        "mean_abs_diff": 1.4e-05,
+        "decision_agreement": 1.0,
+        "positive_decisions_fp32": 10555
+      }
+    }
+  }
+}

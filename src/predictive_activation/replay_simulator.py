@@ -1,10 +1,18 @@
+"""Replay the recorded telemetry CSV into Kafka (local simulation mode).
+
+    python -m predictive_activation.replay_simulator --speed 2.0
+"""
+
+import argparse
 import csv
 import json
-import time
-import argparse
-import threading
 import random
-from kafka import KafkaProducer, KafkaConsumer
+import threading
+import time
+
+from kafka import KafkaConsumer, KafkaProducer
+
+from predictive_activation import config
 
 # Global state for simulation triggers
 spike_counter = 0
@@ -16,7 +24,7 @@ def listen_for_simulation_commands(broker):
     for i in range(15):
         try:
             consumer = KafkaConsumer(
-                'network-simulation',
+                config.SIMULATION_TOPIC,
                 bootstrap_servers=[broker],
                 value_deserializer=lambda x: json.loads(x.decode('utf-8')),
                 auto_offset_reset='latest'
@@ -34,7 +42,7 @@ def listen_for_simulation_commands(broker):
     for message in consumer:
         cmd = message.value
         if cmd.get("command") == "spike":
-            print("\n🔥 TRIGGER RECEIVED: Injecting simulated congestion traffic spike for next 15 readings! 🔥")
+            print("\nTRIGGER RECEIVED: Injecting simulated congestion traffic spike for next 15 readings!")
             spike_counter = 15
 
 def run_simulator(csv_path, broker, topic, speed, loop):
@@ -134,7 +142,7 @@ def run_simulator(csv_path, broker, topic, speed, loop):
                 producer.send(topic, value=payload)
                 prev_timestamp = original_ts
                 
-            except (ValueError, KeyError) as e:
+            except (ValueError, KeyError):
                 # Skip malformed rows
                 continue
         
@@ -149,9 +157,9 @@ def run_simulator(csv_path, broker, topic, speed, loop):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Replay telemetry dataset into Kafka.")
-    parser.add_argument('--csv', type=str, default='telemetry_dataset.csv', help='Path to telemetry CSV file.')
-    parser.add_argument('--broker', type=str, default='localhost:9092', help='Kafka bootstrap broker.')
-    parser.add_argument('--topic', type=str, default='network-telemetry', help='Target Kafka topic.')
+    parser.add_argument('--csv', type=str, default=str(config.DATASET_PATH), help='Path to telemetry CSV file.')
+    parser.add_argument('--broker', type=str, default=config.BOOTSTRAP_SERVERS, help='Kafka bootstrap broker.')
+    parser.add_argument('--topic', type=str, default=config.TELEMETRY_TOPIC, help='Target Kafka topic.')
     parser.add_argument('--speed', type=float, default=2.0, help='Playback speed multiplier.')
     parser.add_argument('--no-loop', dest='loop', action='store_false', help='Do not loop indefinitely.')
     parser.set_defaults(loop=True)

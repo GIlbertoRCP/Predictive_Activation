@@ -7,6 +7,10 @@ By decoupling network state monitoring, ML inference, and control plane executio
 **Team:** Diego Alas, Gilberto Romero-Cano, Corey Green, JJ Wagner  
 **Course:** CSCI 4930 HL1 @ CU Denver  
 
+[![CI](https://github.com/GIlbertoRCP/Predictive_Activation/actions/workflows/ci.yml/badge.svg)](https://github.com/GIlbertoRCP/Predictive_Activation/actions/workflows/ci.yml)
+
+> **Status (Oct 2026):** The original SDN course project is preserved unchanged on the [`sdn-course-project`](https://github.com/GIlbertoRCP/Predictive_Activation/tree/sdn-course-project) branch. `main` has been restructured into a tested package as groundwork for the next phase. See [Results](#results) for what the measurements actually show.
+
 ---
 
 ## System Architecture
@@ -57,7 +61,7 @@ The project implements a decoupled, event-driven streaming pipeline:
 ```
 
 1. **Lightweight SDN Controller**: The os-ken controller polls OpenFlow switches for port/queue metrics, publishes raw telemetry to the `network-telemetry` topic, and subscribes to the `network-control` topic. It offloads all heavy ML calculations, keeping memory overhead under 30MB.
-2. **Inference Microservice**: A FastAPI application consumes telemetry messages, maintains port-specific sliding windows, runs LSTM models to predict congestion, runs the DQN agent to select polling intervals, and decides when to reroute traffic from Core 1 (`s1`) to Core 2 (`s2`).
+2. **Inference Microservice**: A FastAPI application consumes telemetry messages, maintains port-specific sliding windows, runs the LSTM to predict congestion, runs the DQN agent to select polling intervals, and decides when to reroute traffic from Core 1 (`s1`) to Core 2 (`s2`).
 3. **Closed-Loop Self-Healing**: When the LSTM congestion forecast exceeds **70%**, the microservice commands the controller to:
    - Snaps the polling rate to intensive mode (1s).
    - Installs high-priority (priority 10) flow rules on aggregation switches to steer traffic flows to the backup path `s2` to prevent service degradation.
@@ -65,142 +69,124 @@ The project implements a decoupled, event-driven streaming pipeline:
 
 ---
 
-## Execution Modes & Instructions
+## Results
 
-### 1. Setup Environment
-First, clone the repository, set up a Python virtual environment, and install the dependencies:
+All numbers come from [BENCHMARKS.md](BENCHMARKS.md), produced by `python -m predictive_activation.optimize` on a Ryzen 7 7700X.
 
-```bash
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: source .venv/Scripts/activate
+| Finding | Number |
+| :--- | :--- |
+| LSTM next-step congestion F1 | 99.14% |
+| Persistence baseline (next step = current step) | **99.30%**. The label changes on only 0.6% of steps, so the LSTM adds nothing here. |
+| DQN polling agent vs a one-line threshold rule | 5,056 vs 4,990 mean reward (indistinguishable) |
+| INT8 LSTM size | 792.6 KB → 210.6 KB (−73.4%) |
+| INT8 reroute decisions matching FP32 | 99.92% of 24,909 windows |
+| Batch-1 inference, PyTorch → ONNX Runtime | 0.22 ms → 0.054 ms (4.2×) |
+| Per-event cost, batch 1 → batch 1024 (INT8) | 54 µs → 2.2 µs |
 
-# Install dependencies
-pip install -r requirements.txt
+The streaming and inference engineering holds up. The prediction problem is too easy for the models to matter, which is what the next phase addresses.
+
+---
+
+## Project Layout
+
 ```
-
-Start the Apache Kafka message broker in the background using Docker:
-```bash
-docker compose up -d
+src/predictive_activation/
+  config.py            constants, paths, Kafka topics (single source of truth)
+  models.py            LSTM / GRU forecasters
+  data.py              dataset loading, labels, sliding windows
+  service.py           FastAPI + Kafka inference service (InferenceEngine core)
+  dashboard.py         Streamlit dashboard
+  optimize.py          ONNX export, INT8 quantization, benchmarks
+  replay_simulator.py  replays the CSV into Kafka
+  stress_generator.py  synthetic Kafka load generator
+  train/forecaster.py  trains the LSTM or GRU (--arch)
+  train/rl_agent.py    trains the DQN polling agent
+models/                trained checkpoints and ONNX graphs
+data/                  recorded Mininet telemetry
+benchmarks/            results.json (raw benchmark output)
+legacy/sdn/            os-ken controller + Mininet topology (Linux only)
+tests/                 pytest suite (no Kafka or Mininet needed)
 ```
 
 ---
 
-### Option A: Local Simulation Mode (macOS / Dev)
-Since Mininet requires Linux kernel namespaces and cannot run natively on macOS, use the simulator to replay historical data into the streaming pipeline:
+## Running It
+
+### 1. Setup
 
 ```bash
-# 1. Start the FastAPI ML Inference Service (loads LSTM/DQN models)
-python3 inference_service.py
-
-# 2. Run the Telemetry Simulator (streams CSV data into Kafka in a loop)
-python3 replay_simulator.py --speed 2.0
-
-# 3. Launch the Interactive Dashboard
-streamlit run dashboard.py --server.headless=true
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e ".[dev]" --extra-index-url https://download.pytorch.org/whl/cpu
 ```
-Navigate to **http://localhost:8501** and select the **Live Streaming & Self-Healing** mode on the sidebar to watch the system dynamically predict congestion, trigger path adjustments, and display self-healing alerts on the visual map.
+
+Use the `--extra-index-url` to get the CPU-only PyTorch build. Leave it out if you want CUDA.
+
+### 2. Option A: Local simulation (any OS)
+
+Mininet needs Linux kernel namespaces, so this mode replays recorded telemetry into the same streaming pipeline instead.
+
+```bash
+docker compose up -d kafka
+python -m predictive_activation.service                      # FastAPI on :8000
+python -m predictive_activation.replay_simulator --speed 2.0
+streamlit run src/predictive_activation/dashboard.py
+```
+
+Open http://localhost:8501 and choose **Live Streaming & Self-Healing**. Or run everything in containers with `docker compose up --build`, then start the replay simulator against `localhost:9092`.
+
+### 3. Option B: Real SDN (Linux with Mininet + Open vSwitch)
+
+```bash
+pip install -e ".[sdn]"
+python -m predictive_activation.service
+os-ken-manager legacy/sdn/simple_switch_13.py legacy/sdn/predictive_controller.py
+sudo python3 legacy/sdn/custom_topo.py
+./legacy/sdn/traffic.sh
+streamlit run src/predictive_activation/dashboard.py
+```
+
+### 4. Retrain and re-benchmark
+
+```bash
+python -m predictive_activation.train.forecaster --arch lstm
+python -m predictive_activation.train.forecaster --arch gru
+python -m predictive_activation.train.rl_agent
+python -m predictive_activation.optimize          # writes benchmarks/results.json
+```
+
+### 5. Tests
+
+```bash
+ruff check src tests
+pytest
+```
+
+CI runs both on every push and pull request.
 
 ---
 
-### Option B: Real SDN Mode (Linux / AWS EC2)
-If running on an Ubuntu VM with Mininet and Open vSwitch installed:
+## Dashboard Controls
 
-```bash
-# 1. Start the FastAPI ML Inference Service
-python3 inference_service.py
-
-# 2. Launch the os-ken SDN controller (handles forwarding and telemetry collection)
-os-ken-manager simple_switch_13.py predictive_controller.py
-
-# 3. Start the Mininet network topology
-sudo python3 custom_topo.py
-
-# 4. Generate traffic in the Mininet CLI (or run traffic script)
-chmod +x traffic.sh
-./traffic.sh
-
-# 5. Launch the Dashboard
-streamlit run dashboard.py --server.headless=true
-```
-
----
-
-## Edge Model Optimization & MLOps
-
-To prove edge readiness and low-latency operation, the system features an edge optimization suite utilizing **ONNX Runtime** and **Dynamic INT8 Quantization**:
-
-### 1. Compile & Quantize Models
-Convert PyTorch `.pth` weights to optimized ONNX graphs and generate quantized versions by running:
-```bash
-python3 optimize_models.py
-```
-This performs a full size and latency benchmark run, exporting a performance report to `onnx_benchmarks.json`.
-
-### 2. Edge Optimization Benchmarks
-* **PyTorch Baseline**: ~791 KB model size, ~0.175ms inference latency.
-* **ONNX Runtime (FP32)**: ~795 KB model size, ~0.058ms inference latency (**66.8% speedup**).
-* **ONNX Runtime Quantized (INT8)**: **~214 KB** model size (**72.9% footprint reduction**), **~0.054ms** inference latency (**69.1% speedup**).
-
-### 3. Interactive MLOps Dashboard Controls
-* **Live Engine Swapping**: Under the **MLOps & Edge Optimization (ONNX / INT8)** tab, choose between PyTorch, ONNX, and ONNX Quantized execution backends. Swapping triggers an instant REST call (`/set-engine`) to update the live FastAPI inference thread.
-* **Congestion Spike Injection**: Click the **" Inject Congestion Spike"** button in the sidebar to simulate high-load scenarios. FastAPI sends a command to the `network-simulation` topic, prompting the telemetry simulator to inject 15 readings of latency > 150ms and high queue depths, demonstrating real-time path self-healing.
+* **Live engine swapping:** on the **MLOps & Edge Optimization** tab, switch between PyTorch, ONNX FP32 and ONNX INT8. The switch is a `/set-engine` call to the running service.
+* **Congestion spike injection:** the sidebar button publishes to `network-simulation`. The replay simulator then injects 15 readings with latency above 150 ms, so you can watch the reroute to `s2`.
 
 ---
 
 ## Tech Stack
 
-Every component has been verified for compatibility on **Python 3.12.x**:
-
-| Layer | Technology | Version | Notes |
-|-------|-----------|---------|-------|
-| Runtime | Python | `3.12` | Broad library support, security patches |
-| Infrastructure | Docker & Compose | `v2` | Simplifies running Kafka in KRaft mode |
-| Event Streaming | Apache Kafka | `7.5.0` (Confluent) | KRaft mode (Zookeeper-less single-node broker) |
-| Microservices | FastAPI & Uvicorn | `0.138.0` / `0.49.0` | Decoupled async inference backend |
-| SDN Controller | **os-ken** | `3.1.1` | Maintained Ryu fork (compatible with Python 3.12) |
-| Deep Learning | PyTorch | `2.10.0` | LSTM model for forecasting congestion |
-| Reinforcement Learning | Stable Baselines3 | `2.9.0` | DQN agent for polling rate escalation |
-| Visualization | Graphviz & Altair | `0.21.0` / `6.2.1` | Renders dynamic topological path switches |
-| Dashboard | Streamlit | `1.58.0` | Real-time comparative dashboard |
-
----
-
-## requirements.txt
-
-```text
-# Deep Learning & RL
-torch==2.10.0
-stable-baselines3[extra]>=2.0.0
-gymnasium>=0.29.1
-
-# ML & Data
-scikit-learn==1.6.1
-numpy>=2.0,<3.0
-pandas>=2.2
-
-# SDN Controller (WSL/Linux Only)
-os-ken==3.1.1
-eventlet==0.35.2
-
-# Dashboard & UI
-streamlit>=1.30.0
-altair>=5.0.0
-matplotlib>=3.9
-pyyaml>=6.0
-
-# Streaming & Microservices
-kafka-python-ng>=2.2.2
-fastapi>=0.110.0
-uvicorn>=0.28.0
-requests>=2.31.0
-graphviz>=0.20.0
-onnx>=1.15.0
-onnxruntime>=1.17.0
-onnxscript>=0.1.0
-```
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Python 3.12 |
+| Event streaming | Apache Kafka (Confluent 7.5.0, KRaft mode) via Docker Compose |
+| Service | FastAPI + Uvicorn, Prometheus client |
+| Deep learning | PyTorch 2.10 (LSTM / GRU) |
+| Reinforcement learning | Stable-Baselines3 DQN, Gymnasium |
+| Inference optimization | ONNX, ONNX Runtime dynamic INT8 quantization |
+| Dashboard | Streamlit, Altair, Graphviz |
+| SDN (legacy) | os-ken 3.1.1, Mininet, Open vSwitch |
 
 ---
 
 ## License
-MIT — see [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE) for details.

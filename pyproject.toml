@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "predictive-activation"
+version = "0.1.0"
+description = "Predictive telemetry: streaming LSTM/GRU forecasting, RL polling control, and ONNX/INT8 edge inference over Kafka."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dependencies = [
+    # Deep learning & RL
+    "torch==2.10.0",
+    "stable-baselines3>=2.0.0",
+    "gymnasium>=0.29.1",
+    # ML & data
+    "scikit-learn==1.6.1",
+    "numpy>=2.0,<3.0",
+    "pandas>=2.2",
+    # Inference optimization
+    "onnx>=1.15.0",
+    "onnxruntime>=1.17.0",
+    "onnxscript>=0.1.0",
+    # Streaming & service
+    "kafka-python-ng>=2.2.2",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.28.0",
+    "prometheus-client>=0.20.0",
+    "requests>=2.31.0",
+    # Dashboard
+    "streamlit>=1.30.0",
+    "altair>=5.0.0",
+    "graphviz>=0.20.0",
+]
+
+[project.optional-dependencies]
+# Original SDN controller (Linux only, see legacy/sdn/)
+sdn = ["os-ken==3.1.1", "eventlet==0.35.2"]
+dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:torch.*",
+    "ignore:You are using the legacy TorchScript-based ONNX export:DeprecationWarning",
+    "ignore::torch.jit.TracerWarning",
+    "ignore:Exporting a model to ONNX with a batch_size other than 1:UserWarning",
+]
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+extend-exclude = ["legacy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501", "B008", "B905"]

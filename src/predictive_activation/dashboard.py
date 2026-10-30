@@ -1,14 +1,19 @@
+import json
 import os
 import time
-import json
-import requests
-import streamlit as st
-import pandas as pd
-import numpy as np
-import torch
-import torch.nn as nn
+
 import altair as alt
 import graphviz
+import numpy as np
+import pandas as pd
+import requests
+import streamlit as st
+import torch
+
+from predictive_activation import config
+from predictive_activation.config import FEATURES, RISK_THRESHOLD, SEQUENCE_LENGTH
+from predictive_activation.data import add_labels, fit_scaler, load_telemetry
+from predictive_activation.models import load_model as _load_model
 
 # --- API Config ---
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
@@ -17,69 +22,25 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 st.set_page_config(page_title="Predictive Activation SDN Dashboard", layout="wide")
 st.title("Predictive Activation: Decoupled SDN Telemetry & MLOps Platform")
 
-# --- Constants (kept consistent with train_lstm.py) ---
-SEQUENCE_LENGTH = 5
-LATENCY_THRESHOLD_MS = 100.0
-RISK_THRESHOLD = 0.70
-FEATURES = ['rx_mbps', 'tx_mbps', 'rx_loss', 'tx_loss', 'avg_queue_depth', 'latency_ms']
-
-# --- Model Definitions (identical to training scripts) ---
-class LSTMPredictor(nn.Module):
-    def __init__(self, input_size=6, hidden_size=128, num_layers=2):
-        super().__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 1)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        out, _ = self.lstm(x)
-        return self.sigmoid(self.fc(out[:, -1, :]))
-
-
-class GRUPredictor(nn.Module):
-    def __init__(self, input_size=6, hidden_size=128, num_layers=2):
-        super().__init__()
-        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 1)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        out, _ = self.gru(x)
-        return self.sigmoid(self.fc(out[:, -1, :]))
-
 
 @st.cache_resource
-def load_model(model_class, weights_path):
+def load_model(arch, weights_path):
     if not os.path.exists(weights_path):
         return None
-    device = torch.device('cpu')
-    model = model_class().to(device)
-    model.load_state_dict(torch.load(weights_path, map_location=device, weights_only=True))
-    model.eval()
-    return model
+    return _load_model(arch, weights_path)
 
 
 @st.cache_data
 def load_and_score():
-    if not os.path.exists('telemetry_dataset.csv'):
+    if not os.path.exists(config.DATASET_PATH):
         return pd.DataFrame(), {}
 
-    df = pd.read_csv('telemetry_dataset.csv')
-    df = df.sort_values(by=['switch_id', 'port_no', 'timestamp']).reset_index(drop=True)
+    df = add_labels(load_telemetry(config.DATASET_PATH))
+    scaler = fit_scaler(df)
+    scaled = pd.DataFrame(scaler.transform(df[FEATURES].to_numpy()), columns=FEATURES, index=df.index)
 
-    df['is_congested'] = (df['latency_ms'] > LATENCY_THRESHOLD_MS).astype(int)
-    df['future_congestion'] = (
-        df.groupby(['switch_id', 'port_no'])['is_congested'].shift(-1)
-    )
-
-    scaler = MinMaxScaler()
-    scaled = pd.DataFrame(
-        scaler.fit_transform(df[FEATURES]),
-        columns=FEATURES, index=df.index
-    )
-
-    lstm = load_model(LSTMPredictor, 'lstm_forecaster.pth')
-    gru  = load_model(GRUPredictor,  'gru_forecaster.pth')
+    lstm = load_model("lstm", config.LSTM_PATH)
+    gru = load_model("gru", config.GRU_PATH)
 
     df['lstm_risk'] = np.nan
     df['gru_risk']  = np.nan
@@ -108,7 +69,7 @@ def load_and_score():
     eval_df = df.dropna(subset=['future_congestion'])
 
     def _metrics(mask, prob_col):
-        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+        from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
         y_true = eval_df.loc[mask, 'future_congestion'].astype(int).values
         y_pred = (eval_df.loc[mask, prob_col].values > 0.5).astype(int)
         return {
@@ -142,13 +103,12 @@ if dashboard_mode == "Historical Batch Analytics":
     st.sidebar.markdown("---")
     st.sidebar.info("Viewing pre-recorded SDN telemetry data and offline predictive model benchmarks.")
     
-    from sklearn.preprocessing import MinMaxScaler
     df, metrics = load_and_score()
 
     if df.empty:
-        st.error("No telemetry data found. Ensure 'telemetry_dataset.csv' is in the directory.")
+        st.error("No telemetry data found. Ensure 'data/telemetry_dataset.csv' exists.")
     elif 'lstm' not in metrics:
-        st.warning("`lstm_forecaster.pth` not found. Run `python3 train_lstm.py` first to enable the dashboard.")
+        st.warning("`lstm_forecaster.pth` not found. Run `python -m predictive_activation.train.forecaster` first to enable the dashboard.")
     else:
         st.header("1. Network Overhead Comparison")
         col1, col2, col3 = st.columns(3)
@@ -278,15 +238,13 @@ else: # --- Live Streaming & Self-Healing Mode ---
         st.warning(f"Could not connect to FastAPI Inference Service at {BACKEND_URL}.")
         st.info("To start the pipeline and view live streaming telemetry, please run the following in your terminal:")
         st.code("""# 1. Start Kafka Broker
-docker compose up -d
+docker compose up -d kafka
 
 # 2. Run the decoupled ML Inference Service
-source .venv/bin/activate
-python3 inference_service.py
+python -m predictive_activation.service
 
 # 3. Stream simulation telemetry from CSV into Kafka
-source .venv/bin/activate
-python3 replay_simulator.py --speed 2.0""")
+python -m predictive_activation.replay_simulator --speed 2.0""")
         st.stop()
 
     telemetry = backend_data.get("telemetry", {})
@@ -513,22 +471,23 @@ python3 replay_simulator.py --speed 2.0""")
         m_col2.metric("Live Prediction Latency", f"{last_latency_ms:.3f} ms")
 
         # Load and render ONNX benchmarks
-        if os.path.exists("onnx_benchmarks.json"):
-            with open("onnx_benchmarks.json", "r") as f:
+        if os.path.exists(config.BENCHMARK_RESULTS_PATH):
+            with open(config.BENCHMARK_RESULTS_PATH, "r") as f:
                 benchmarks = json.load(f)
-            
+
             # Prepare benchmark tables
             st.subheader("Optimization Benchmarks (LSTM Congestion Predictor)")
-            
+
             lstm_bench = benchmarks.get("lstm", {})
+            single = lstm_bench.get("batch_benchmarks", {}).get("1", {})
             bench_rows = []
-            for eng_name, stats in lstm_bench.items():
+            for eng_name, size_kb in lstm_bench.get("file_sizes_kb", {}).items():
                 bench_rows.append({
                     "Engine": engine_options.get(eng_name, eng_name),
-                    "Model Size (KB)": stats["size_kb"],
-                    "Inference Latency (ms)": stats["latency_ms"]
+                    "Model Size (KB)": size_kb,
+                    "Inference Latency (ms)": single.get(eng_name, {}).get("p50_ms")
                 })
-            
+
             bench_df = pd.DataFrame(bench_rows)
             
             # Visual graphs side-by-side
@@ -538,7 +497,7 @@ python3 replay_simulator.py --speed 2.0""")
                 st.markdown("**Inference Latency (ms) - Lower is Better**")
                 latency_chart = alt.Chart(bench_df).mark_bar().encode(
                     x=alt.X('Engine:N', sort=None, title='Inference Engine'),
-                    y=alt.Y('Inference Latency (ms):Q', title='Average Latency (ms)'),
+                    y=alt.Y('Inference Latency (ms):Q', title='p50 Latency, batch size 1 (ms)'),
                     color=alt.Color('Engine:N', legend=None)
                 ).properties(height=300)
                 st.altair_chart(latency_chart, use_container_width=True)
@@ -554,13 +513,15 @@ python3 replay_simulator.py --speed 2.0""")
                 
             st.table(bench_df)
             
-            st.info(
-                "**Key Insight:** Notice how dynamic INT8 quantization reduces the PyTorch model size by **~73%** "
-                "(from ~791 KB to ~214 KB) and reduces average execution latency by **~70%** (from ~0.17ms to ~0.05ms) "
-                "with zero loss in prediction accuracy!"
-            )
+            parity = lstm_bench.get("accuracy_parity", {})
+            if parity:
+                st.caption(
+                    f"INT8 vs FP32 on {parity['n_windows']:,} real windows: max |Δp| = {parity['max_abs_diff']:.4f}, "
+                    f"decision agreement at the {RISK_THRESHOLD:.2f} threshold = {parity['decision_agreement']*100:.2f}%. "
+                    f"Measured on {benchmarks.get('environment', {}).get('cpu', 'unknown CPU')}."
+                )
         else:
-            st.info("Run `python3 optimize_models.py` to generate the ONNX benchmarks and model footprints comparisons.")
+            st.info("Run `python -m predictive_activation.optimize` to generate the ONNX benchmarks and model footprints comparisons.")
 
     # Auto rerun every 1.5 seconds to pull fresh stream
     time.sleep(1.5)
