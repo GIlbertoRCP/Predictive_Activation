@@ -1,0 +1,244 @@
+{
+  "reference": "reactive_rps at target 0.6",
+  "headline_startup_s": 60,
+  "violation_min_at_matched_cost": {
+    "diurnal": {
+      "hpa_cpu": 1.42,
+      "hybrid_gbm": 0.0,
+      "oracle": 0.0,
+      "predictive_gbm": 0.0,
+      "predictive_holt": 0.0,
+      "predictive_naive": 0.0,
+      "reactive_rps": 0.0
+    },
+    "flash_crowd": {
+      "hpa_cpu": 50.1,
+      "hybrid_gbm": 20.59,
+      "oracle": 0.0,
+      "predictive_gbm": 21.43,
+      "predictive_holt": 37.42,
+      "predictive_naive": 34.42,
+      "reactive_rps": 34.33
+    },
+    "noisy": {
+      "hpa_cpu": 2.58,
+      "hybrid_gbm": 0.0,
+      "oracle": 0.0,
+      "predictive_gbm": 0.0,
+      "predictive_holt": 0.05,
+      "predictive_naive": 0.0,
+      "reactive_rps": 0.0
+    },
+    "ramp": {
+      "hpa_cpu": 2.49,
+      "hybrid_gbm": 0.0,
+      "oracle": 0.0,
+      "predictive_gbm": 5.54,
+      "predictive_holt": 0.0,
+      "predictive_naive": 0.0,
+      "reactive_rps": 0.0
+    }
+  },
+  "forecast_metrics": [
+    {
+      "scenario": "diurnal",
+      "forecaster": "gbm_q90",
+      "mae": 9.181,
+      "mape_pct": 4.52,
+      "under_forecast_pct": 14.997,
+      "pinball_q90": 1.493
+    },
+    {
+      "scenario": "diurnal",
+      "forecaster": "holt",
+      "mae": 6.811,
+      "mape_pct": 3.239,
+      "under_forecast_pct": 65.352,
+      "pinball_q90": 4.561
+    },
+    {
+      "scenario": "diurnal",
+      "forecaster": "last_value",
+      "mae": 7.002,
+      "mape_pct": 3.359,
+      "under_forecast_pct": 70.799,
+      "pinball_q90": 5.164
+    },
+    {
+      "scenario": "diurnal",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "diurnal",
+      "forecaster": "seasonal_naive",
+      "mae": 13.809,
+      "mape_pct": 6.601,
+      "under_forecast_pct": 50.204,
+      "pinball_q90": 6.828
+    },
+    {
+      "scenario": "flash_crowd",
+      "forecaster": "gbm_q90",
+      "mae": 18.668,
+      "mape_pct": 7.218,
+      "under_forecast_pct": 13.859,
+      "pinball_q90": 4.799
+    },
+    {
+      "scenario": "flash_crowd",
+      "forecaster": "holt",
+      "mae": 13.663,
+      "mape_pct": 3.781,
+      "under_forecast_pct": 61.643,
+      "pinball_q90": 7.629
+    },
+    {
+      "scenario": "flash_crowd",
+      "forecaster": "last_value",
+      "mae": 11.128,
+      "mape_pct": 3.603,
+      "under_forecast_pct": 66.208,
+      "pinball_q90": 7.653
+    },
+    {
+      "scenario": "flash_crowd",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "flash_crowd",
+      "forecaster": "seasonal_naive",
+      "mae": 54.407,
+      "mape_pct": 17.081,
+      "under_forecast_pct": 50.373,
+      "pinball_q90": 28.982
+    },
+    {
+      "scenario": "noisy",
+      "forecaster": "gbm_q90",
+      "mae": 45.56,
+      "mape_pct": 13.76,
+      "under_forecast_pct": 13.298,
+      "pinball_q90": 7.198
+    },
+    {
+      "scenario": "noisy",
+      "forecaster": "holt",
+      "mae": 31.733,
+      "mape_pct": 8.734,
+      "under_forecast_pct": 54.085,
+      "pinball_q90": 17.026
+    },
+    {
+      "scenario": "noisy",
+      "forecaster": "last_value",
+      "mae": 28.194,
+      "mape_pct": 7.714,
+      "under_forecast_pct": 60.683,
+      "pinball_q90": 18.06
+    },
+    {
+      "scenario": "noisy",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "noisy",
+      "forecaster": "seasonal_naive",
+      "mae": 97.735,
+      "mape_pct": 28.336,
+      "under_forecast_pct": 49.609,
+      "pinball_q90": 47.804
+    },
+    {
+      "scenario": "ramp",
+      "forecaster": "gbm_q90",
+      "mae": 53.289,
+      "mape_pct": 8.252,
+      "under_forecast_pct": 40.81,
+      "pinball_q90": 37.313
+    },
+    {
+      "scenario": "ramp",
+      "forecaster": "holt",
+      "mae": 19.905,
+      "mape_pct": 3.782,
+      "under_forecast_pct": 57.41,
+      "pinball_q90": 11.591
+    },
+    {
+      "scenario": "ramp",
+      "forecaster": "last_value",
+      "mae": 18.321,
+      "mape_pct": 3.493,
+      "under_forecast_pct": 64.624,
+      "pinball_q90": 12.393
+    },
+    {
+      "scenario": "ramp",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "ramp",
+      "forecaster": "seasonal_naive",
+      "mae": 44.209,
+      "mape_pct": 8.559,
+      "under_forecast_pct": 50.012,
+      "pinball_q90": 21.785
+    }
+  ],
+  "cluster": {
+    "pod_capacity_rps": 50.0,
+    "startup_s": 60.0,
+    "min_replicas": 2,
+    "initial_target": 0.6,
+    "max_replicas": 200,
+    "slo_p95_ms": 250.0,
+    "request_timeout_s": 10.0,
+    "step_s": 15
+  },
+  "grid": {
+    "scenarios": [
+      "diurnal",
+      "flash_crowd",
+      "noisy",
+      "ramp"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "startups_s": [
+      15,
+      30,
+      60,
+      120,
+      180
+    ],
+    "targets": [
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8
+    ],
+    "train_days": 7,
+    "test_days": 7
+  },
+  "runtime_s": 372.1
+}

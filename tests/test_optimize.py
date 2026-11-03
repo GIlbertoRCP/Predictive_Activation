@@ -41,9 +41,5 @@ def test_benchmark_batch_reports_ordered_percentiles():
     stats = benchmark_batch(lambda a: a.sum(), np.ones((4, 5, 6), dtype=np.float32), num_runs=50, warmup=5)
     assert stats["p50_ms"] <= stats["p90_ms"] <= stats["p99_ms"]
     assert stats["runs"] == 50
-    assert stats["per_event_p50_ms"] * 4 == pytest_approx(stats["p50_ms"])
-
-
-def pytest_approx(v):
-    import pytest
-    return pytest.approx(v, rel=1e-3, abs=1e-6)
+    # p50_ms is rounded to 4 decimals, so compare within that rounding error.
+    assert abs(stats["per_event_p50_ms"] * 4 - stats["p50_ms"]) <= 1e-4

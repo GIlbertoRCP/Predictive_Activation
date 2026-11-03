@@ -1,0 +1,644 @@
+{
+  "reference": "reactive_rps at target 0.6",
+  "headline_startup_s": 60,
+  "violation_min_at_matched_cost": {
+    "az_burst_075": {
+      "hpa_cpu": 39.3,
+      "hybrid_gbm": 24.64,
+      "oracle": 0.0,
+      "predictive_gbm": NaN,
+      "predictive_holt": 24.78,
+      "predictive_naive": 24.5,
+      "reactive_rps": 24.5
+    },
+    "az_burst_090": {
+      "hpa_cpu": 184.33,
+      "hybrid_gbm": NaN,
+      "oracle": 0.0,
+      "predictive_gbm": NaN,
+      "predictive_holt": 165.96,
+      "predictive_naive": 142.25,
+      "reactive_rps": 142.25
+    },
+    "az_burst_186": {
+      "hpa_cpu": 158.75,
+      "hybrid_gbm": 59.7,
+      "oracle": 0.0,
+      "predictive_gbm": 64.14,
+      "predictive_holt": 167.68,
+      "predictive_naive": 115.17,
+      "reactive_rps": 115.17
+    },
+    "az_burst_191": {
+      "hpa_cpu": 11.79,
+      "hybrid_gbm": 4.35,
+      "oracle": 0.0,
+      "predictive_gbm": 4.48,
+      "predictive_holt": 8.41,
+      "predictive_naive": 7.84,
+      "reactive_rps": 7.83
+    },
+    "az_busy_002": {
+      "hpa_cpu": 2.5,
+      "hybrid_gbm": 0.0,
+      "oracle": 0.0,
+      "predictive_gbm": 0.0,
+      "predictive_holt": 0.0,
+      "predictive_naive": 0.0,
+      "reactive_rps": 0.0
+    },
+    "az_busy_008": {
+      "hpa_cpu": 3.22,
+      "hybrid_gbm": 1.61,
+      "oracle": 0.0,
+      "predictive_gbm": 1.68,
+      "predictive_holt": 1.62,
+      "predictive_naive": 1.25,
+      "reactive_rps": 1.25
+    },
+    "az_busy_016": {
+      "hpa_cpu": 2.78,
+      "hybrid_gbm": 0.25,
+      "oracle": 0.0,
+      "predictive_gbm": NaN,
+      "predictive_holt": 0.24,
+      "predictive_naive": 0.25,
+      "reactive_rps": 0.25
+    },
+    "az_busy_019": {
+      "hpa_cpu": 3.14,
+      "hybrid_gbm": 0.0,
+      "oracle": 0.0,
+      "predictive_gbm": 0.0,
+      "predictive_holt": 0.0,
+      "predictive_naive": 0.0,
+      "reactive_rps": 0.0
+    },
+    "az_busy_022": {
+      "hpa_cpu": 6.77,
+      "hybrid_gbm": 1.58,
+      "oracle": 0.0,
+      "predictive_gbm": 1.58,
+      "predictive_holt": 7.34,
+      "predictive_naive": 5.75,
+      "reactive_rps": 5.75
+    },
+    "az_busy_024": {
+      "hpa_cpu": 1318.92,
+      "hybrid_gbm": NaN,
+      "oracle": 0.27,
+      "predictive_gbm": 10.16,
+      "predictive_holt": 1405.05,
+      "predictive_naive": 1331.1,
+      "reactive_rps": 1331.17
+    },
+    "az_busy_033": {
+      "hpa_cpu": 77.53,
+      "hybrid_gbm": 1.93,
+      "oracle": 0.46,
+      "predictive_gbm": 2.36,
+      "predictive_holt": 68.75,
+      "predictive_naive": 54.25,
+      "reactive_rps": 54.25
+    },
+    "az_busy_035": {
+      "hpa_cpu": 8.72,
+      "hybrid_gbm": 6.52,
+      "oracle": 0.0,
+      "predictive_gbm": 10.98,
+      "predictive_holt": 7.74,
+      "predictive_naive": 5.58,
+      "reactive_rps": 5.58
+    }
+  },
+  "forecast_metrics": [
+    {
+      "scenario": "az_burst_075",
+      "forecaster": "gbm_q90",
+      "mae": 345.791,
+      "mape_pct": 21035582.459,
+      "under_forecast_pct": 19.502,
+      "pinball_q90": 308.831
+    },
+    {
+      "scenario": "az_burst_075",
+      "forecaster": "holt",
+      "mae": 20.675,
+      "mape_pct": 3321817.935,
+      "under_forecast_pct": 81.73,
+      "pinball_q90": 10.995
+    },
+    {
+      "scenario": "az_burst_075",
+      "forecaster": "last_value",
+      "mae": 17.852,
+      "mape_pct": 1984582.62,
+      "under_forecast_pct": 74.111,
+      "pinball_q90": 11.689
+    },
+    {
+      "scenario": "az_burst_075",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_burst_075",
+      "forecaster": "seasonal_naive",
+      "mae": 590.159,
+      "mape_pct": 14509884.127,
+      "under_forecast_pct": 46.232,
+      "pinball_q90": 379.631
+    },
+    {
+      "scenario": "az_burst_090",
+      "forecaster": "gbm_q90",
+      "mae": 79.854,
+      "mape_pct": 107.176,
+      "under_forecast_pct": 9.756,
+      "pinball_q90": 15.946
+    },
+    {
+      "scenario": "az_burst_090",
+      "forecaster": "holt",
+      "mae": 52.34,
+      "mape_pct": 61.803,
+      "under_forecast_pct": 61.533,
+      "pinball_q90": 28.545
+    },
+    {
+      "scenario": "az_burst_090",
+      "forecaster": "last_value",
+      "mae": 45.159,
+      "mape_pct": 42.681,
+      "under_forecast_pct": 63.777,
+      "pinball_q90": 28.548
+    },
+    {
+      "scenario": "az_burst_090",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_burst_090",
+      "forecaster": "seasonal_naive",
+      "mae": 200.054,
+      "mape_pct": 324.234,
+      "under_forecast_pct": 51.824,
+      "pinball_q90": 125.441
+    },
+    {
+      "scenario": "az_burst_186",
+      "forecaster": "gbm_q90",
+      "mae": 65.787,
+      "mape_pct": 62.97,
+      "under_forecast_pct": 10.24,
+      "pinball_q90": 11.05
+    },
+    {
+      "scenario": "az_burst_186",
+      "forecaster": "holt",
+      "mae": 44.839,
+      "mape_pct": 29.216,
+      "under_forecast_pct": 57.613,
+      "pinball_q90": 25.622
+    },
+    {
+      "scenario": "az_burst_186",
+      "forecaster": "last_value",
+      "mae": 40.225,
+      "mape_pct": 25.412,
+      "under_forecast_pct": 61.264,
+      "pinball_q90": 25.656
+    },
+    {
+      "scenario": "az_burst_186",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_burst_186",
+      "forecaster": "seasonal_naive",
+      "mae": 112.88,
+      "mape_pct": 81.564,
+      "under_forecast_pct": 46.977,
+      "pinball_q90": 63.912
+    },
+    {
+      "scenario": "az_burst_191",
+      "forecaster": "gbm_q90",
+      "mae": 9.414,
+      "mape_pct": 23327552237.43,
+      "under_forecast_pct": 19.015,
+      "pinball_q90": 2.701
+    },
+    {
+      "scenario": "az_burst_191",
+      "forecaster": "holt",
+      "mae": 9.106,
+      "mape_pct": 46996242634.697,
+      "under_forecast_pct": 77.26,
+      "pinball_q90": 6.429
+    },
+    {
+      "scenario": "az_burst_191",
+      "forecaster": "last_value",
+      "mae": 9.647,
+      "mape_pct": 29787909610.601,
+      "under_forecast_pct": 74.706,
+      "pinball_q90": 7.035
+    },
+    {
+      "scenario": "az_burst_191",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_burst_191",
+      "forecaster": "seasonal_naive",
+      "mae": 11.538,
+      "mape_pct": 39096889753.878,
+      "under_forecast_pct": 49.529,
+      "pinball_q90": 5.467
+    },
+    {
+      "scenario": "az_busy_002",
+      "forecaster": "gbm_q90",
+      "mae": 5.016,
+      "mape_pct": 1.956,
+      "under_forecast_pct": 15.217,
+      "pinball_q90": 0.853
+    },
+    {
+      "scenario": "az_busy_002",
+      "forecaster": "holt",
+      "mae": 10.111,
+      "mape_pct": 3.785,
+      "under_forecast_pct": 69.509,
+      "pinball_q90": 6.935
+    },
+    {
+      "scenario": "az_busy_002",
+      "forecaster": "last_value",
+      "mae": 10.269,
+      "mape_pct": 3.845,
+      "under_forecast_pct": 70.061,
+      "pinball_q90": 7.363
+    },
+    {
+      "scenario": "az_busy_002",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_busy_002",
+      "forecaster": "seasonal_naive",
+      "mae": 4.951,
+      "mape_pct": 1.915,
+      "under_forecast_pct": 49.658,
+      "pinball_q90": 2.49
+    },
+    {
+      "scenario": "az_busy_008",
+      "forecaster": "gbm_q90",
+      "mae": 21.246,
+      "mape_pct": 8.741,
+      "under_forecast_pct": 14.597,
+      "pinball_q90": 4.134
+    },
+    {
+      "scenario": "az_busy_008",
+      "forecaster": "holt",
+      "mae": 16.035,
+      "mape_pct": 6.323,
+      "under_forecast_pct": 61.474,
+      "pinball_q90": 10.014
+    },
+    {
+      "scenario": "az_busy_008",
+      "forecaster": "last_value",
+      "mae": 15.848,
+      "mape_pct": 6.252,
+      "under_forecast_pct": 64.657,
+      "pinball_q90": 10.743
+    },
+    {
+      "scenario": "az_busy_008",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_busy_008",
+      "forecaster": "seasonal_naive",
+      "mae": 21.611,
+      "mape_pct": 8.374,
+      "under_forecast_pct": 50.469,
+      "pinball_q90": 10.671
+    },
+    {
+      "scenario": "az_busy_016",
+      "forecaster": "gbm_q90",
+      "mae": 138.805,
+      "mape_pct": 32.857,
+      "under_forecast_pct": 98.355,
+      "pinball_q90": 124.803
+    },
+    {
+      "scenario": "az_busy_016",
+      "forecaster": "holt",
+      "mae": 10.815,
+      "mape_pct": 3.051,
+      "under_forecast_pct": 66.236,
+      "pinball_q90": 7.374
+    },
+    {
+      "scenario": "az_busy_016",
+      "forecaster": "last_value",
+      "mae": 11.017,
+      "mape_pct": 3.096,
+      "under_forecast_pct": 69.866,
+      "pinball_q90": 8.004
+    },
+    {
+      "scenario": "az_busy_016",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_busy_016",
+      "forecaster": "seasonal_naive",
+      "mae": 14.301,
+      "mape_pct": 4.213,
+      "under_forecast_pct": 47.913,
+      "pinball_q90": 6.813
+    },
+    {
+      "scenario": "az_busy_019",
+      "forecaster": "gbm_q90",
+      "mae": 18.467,
+      "mape_pct": 7.453,
+      "under_forecast_pct": 13.594,
+      "pinball_q90": 2.924
+    },
+    {
+      "scenario": "az_busy_019",
+      "forecaster": "holt",
+      "mae": 13.836,
+      "mape_pct": 5.288,
+      "under_forecast_pct": 62.743,
+      "pinball_q90": 8.65
+    },
+    {
+      "scenario": "az_busy_019",
+      "forecaster": "last_value",
+      "mae": 13.312,
+      "mape_pct": 5.119,
+      "under_forecast_pct": 65.907,
+      "pinball_q90": 9.084
+    },
+    {
+      "scenario": "az_busy_019",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_busy_019",
+      "forecaster": "seasonal_naive",
+      "mae": 16.221,
+      "mape_pct": 6.239,
+      "under_forecast_pct": 50.004,
+      "pinball_q90": 8.093
+    },
+    {
+      "scenario": "az_busy_022",
+      "forecaster": "gbm_q90",
+      "mae": 23.448,
+      "mape_pct": 5832317920.634,
+      "under_forecast_pct": 9.675,
+      "pinball_q90": 3.536
+    },
+    {
+      "scenario": "az_busy_022",
+      "forecaster": "holt",
+      "mae": 12.899,
+      "mape_pct": 1693645043.05,
+      "under_forecast_pct": 63.324,
+      "pinball_q90": 8.041
+    },
+    {
+      "scenario": "az_busy_022",
+      "forecaster": "last_value",
+      "mae": 12.529,
+      "mape_pct": 809113142.081,
+      "under_forecast_pct": 66.639,
+      "pinball_q90": 8.537
+    },
+    {
+      "scenario": "az_busy_022",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_busy_022",
+      "forecaster": "seasonal_naive",
+      "mae": 20.321,
+      "mape_pct": 11067485267.308,
+      "under_forecast_pct": 49.959,
+      "pinball_q90": 10.906
+    },
+    {
+      "scenario": "az_busy_024",
+      "forecaster": "gbm_q90",
+      "mae": 54.833,
+      "mape_pct": 9928620123.516,
+      "under_forecast_pct": 13.764,
+      "pinball_q90": 7.881
+    },
+    {
+      "scenario": "az_busy_024",
+      "forecaster": "holt",
+      "mae": 184.562,
+      "mape_pct": 68555685574.381,
+      "under_forecast_pct": 55.569,
+      "pinball_q90": 105.01
+    },
+    {
+      "scenario": "az_busy_024",
+      "forecaster": "last_value",
+      "mae": 159.232,
+      "mape_pct": 46613968426.557,
+      "under_forecast_pct": 59.611,
+      "pinball_q90": 99.321
+    },
+    {
+      "scenario": "az_busy_024",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_busy_024",
+      "forecaster": "seasonal_naive",
+      "mae": 54.174,
+      "mape_pct": 4477204139.891,
+      "under_forecast_pct": 53.46,
+      "pinball_q90": 25.909
+    },
+    {
+      "scenario": "az_busy_033",
+      "forecaster": "gbm_q90",
+      "mae": 39.503,
+      "mape_pct": 15.14,
+      "under_forecast_pct": 14.994,
+      "pinball_q90": 8.422
+    },
+    {
+      "scenario": "az_busy_033",
+      "forecaster": "holt",
+      "mae": 68.628,
+      "mape_pct": 24.648,
+      "under_forecast_pct": 53.024,
+      "pinball_q90": 39.427
+    },
+    {
+      "scenario": "az_busy_033",
+      "forecaster": "last_value",
+      "mae": 62.502,
+      "mape_pct": 22.028,
+      "under_forecast_pct": 56.819,
+      "pinball_q90": 39.663
+    },
+    {
+      "scenario": "az_busy_033",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_busy_033",
+      "forecaster": "seasonal_naive",
+      "mae": 42.971,
+      "mape_pct": 14.905,
+      "under_forecast_pct": 49.443,
+      "pinball_q90": 22.129
+    },
+    {
+      "scenario": "az_busy_035",
+      "forecaster": "gbm_q90",
+      "mae": 30.581,
+      "mape_pct": 16.924,
+      "under_forecast_pct": 9.803,
+      "pinball_q90": 4.045
+    },
+    {
+      "scenario": "az_busy_035",
+      "forecaster": "holt",
+      "mae": 14.716,
+      "mape_pct": 7.268,
+      "under_forecast_pct": 67.816,
+      "pinball_q90": 9.797
+    },
+    {
+      "scenario": "az_busy_035",
+      "forecaster": "last_value",
+      "mae": 15.685,
+      "mape_pct": 7.336,
+      "under_forecast_pct": 68.364,
+      "pinball_q90": 10.99
+    },
+    {
+      "scenario": "az_busy_035",
+      "forecaster": "oracle",
+      "mae": 0.0,
+      "mape_pct": 0.0,
+      "under_forecast_pct": 0.0,
+      "pinball_q90": 0.0
+    },
+    {
+      "scenario": "az_busy_035",
+      "forecaster": "seasonal_naive",
+      "mae": 20.987,
+      "mape_pct": 10.891,
+      "under_forecast_pct": 48.431,
+      "pinball_q90": 10.108
+    }
+  ],
+  "cluster": {
+    "pod_capacity_rps": 50.0,
+    "startup_s": 60.0,
+    "min_replicas": 2,
+    "initial_target": 0.6,
+    "max_replicas": 1000,
+    "slo_p95_ms": 250.0,
+    "request_timeout_s": 10.0,
+    "step_s": 15
+  },
+  "grid": {
+    "scenarios": [
+      "az_burst_075",
+      "az_burst_090",
+      "az_burst_186",
+      "az_burst_191",
+      "az_busy_002",
+      "az_busy_008",
+      "az_busy_016",
+      "az_busy_019",
+      "az_busy_022",
+      "az_busy_024",
+      "az_busy_033",
+      "az_busy_035"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "startups_s": [
+      15,
+      30,
+      60,
+      120,
+      180
+    ],
+    "targets": [
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8
+    ],
+    "train_days": 7,
+    "test_days": 7
+  },
+  "runtime_s": 1486.4
+}
